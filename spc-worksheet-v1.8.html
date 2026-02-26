@@ -1,0 +1,2847 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPC 统计过程控制工作表 v1.8</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+    <style>
+        .tab-active { background-color: #3b82f6; color: white; }
+        input[type="number"] { text-align: center; }
+
+        /* 隐藏数字输入框的增减箭头 */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+
+        .good { background-color: #86efac; }
+        .warning { background-color: #fde047; }
+        .poor { background-color: #fca5a5; }
+
+        /* 控制图示意图样式 */
+        .spc-chart-point {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            position: absolute;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+        }
+        .spc-chart-demo {
+            width: 100%;
+            height: 60px;
+            position: relative;
+            background: #f9fafb;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .spc-chart-demo::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background: #3b82f6;
+            top: 50%;
+        }
+        .spc-chart-demo .ucl-line {
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background: #ef4444;
+            top: 15%;
+        }
+        .spc-chart-demo .lcl-line {
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background: #ef4444;
+            top: 85%;
+        }
+        .spc-chart-demo .sigma2-line {
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background: #f59e0b;
+            top: 30%;
+        }
+        .spc-chart-demo .sigma2-line-bottom {
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background: #f59e0b;
+            top: 70%;
+        }
+        .spc-point.normal { background: #3b82f6; }
+        .spc-point.warning { background: #f59e0b; }
+        .spc-point.danger { background: #ef4444; }
+
+        /* 可编辑单元格样式 */
+        .data-cell {
+            cursor: text;
+            outline: none;
+            transition: background-color 0.15s ease-in-out;
+            min-width: 60px;
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+        }
+        .data-cell:focus {
+            background-color: #eff6ff;
+            box-shadow: inset 0 0 0 2px #3b82f6;
+        }
+        .data-cell:hover:not(:focus) {
+            background-color: #f9fafb;
+        }
+        /* 表格可选但禁止拖拽 */
+        table {
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
+        /* 禁止表格元素拖拽 */
+        table * {
+            -webkit-user-drag: none !important;
+            -moz-user-drag: none !important;
+            -ms-user-drag: none !important;
+            user-drag: none !important;
+        }
+        /* 禁止HTML5拖拽API */
+        .data-cell, table td, table th {
+            draggable: false !important;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4">
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-3xl font-bold text-center text-blue-700 mb-2">
+            <i class="fa fa-line-chart"></i> SPC 统计过程控制工作表
+        </h1>
+        <p class="text-center text-sm text-gray-600 mb-6">
+            支持 Xbar-R、Xbar-S、I-MR 控制图 | 过程能力分析 | Western Electric 判异准则
+        </p>
+
+        <!-- 步骤说明标签页 -->
+        <div class="bg-white rounded-lg shadow-md mb-4">
+            <div class="border-b">
+                <div class="flex flex-wrap">
+                    <button onclick="switchTab('history')" id="tab-history" class="px-6 py-3 font-semibold hover:bg-gray-100">
+                        <i class="fa fa-history"></i> 版本履历
+                    </button>
+                    <button onclick="switchTab('steps')" id="tab-steps" class="px-6 py-3 font-semibold tab-active">
+                        <i class="fa fa-list-ol"></i> 步骤说明
+                    </button>
+                    <button onclick="switchTab('data')" id="tab-data" class="px-6 py-3 font-semibold hover:bg-gray-100">
+                        <i class="fa fa-table"></i> 数据输入
+                    </button>
+                    <button onclick="switchTab('charts')" id="tab-charts" class="px-6 py-3 font-semibold hover:bg-gray-100">
+                        <i class="fa fa-line-chart"></i> 控制图
+                    </button>
+                    <button onclick="switchTab('capabilities')" id="tab-capabilities" class="px-6 py-3 font-semibold hover:bg-gray-100">
+                        <i class="fa fa-calculator"></i> 过程能力
+                    </button>
+                </div>
+            </div>
+
+            <!-- 版本履历内容 -->
+            <div id="content-history" class="p-6 hidden tab-content">
+                <div class="mb-6">
+                    <div class="bg-slate-50 border-l-4 border-blue-500 p-4 rounded">
+                        <p class="text-sm text-gray-700">
+                            <strong>当前版本</strong>：v1.8 | <strong>更新日期</strong>：2026-02-25
+                        </p>
+                        <p class="text-xs text-gray-600 mt-2">
+                            本页面记录了SPC工具的完整演进历程，包括所有功能改进、bug修复和设计优化。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 版本演进时间线 -->
+                <div class="mb-8">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4">版本演进时间线</h3>
+                    <div class="p-6 rounded-lg">
+                        <div class="flex justify-center items-center gap-2">
+                            <!-- v1.0 -->
+                            <div class="w-[110px]">
+                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-2 shadow-sm">
+                                    <div class="text-center">
+                                        <div class="text-xs font-bold text-gray-700 mb-1">v1.0</div>
+                                        <div class="text-sm font-semibold text-gray-800">初始版本</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-gray-400 text-lg">→</div>
+
+                            <!-- v1.1 -->
+                            <div class="w-[110px]">
+                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-2 shadow-sm">
+                                    <div class="text-center">
+                                        <div class="text-xs font-bold text-gray-700 mb-1">v1.1</div>
+                                        <div class="text-sm font-semibold text-gray-800">修复优化</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-gray-400 text-lg">→</div>
+
+                            <!-- v1.2 -->
+                            <div class="w-[110px]">
+                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-2 shadow-sm">
+                                    <div class="text-center">
+                                        <div class="text-xs font-bold text-gray-700 mb-1">v1.2</div>
+                                        <div class="text-sm font-semibold text-gray-800">界面优化</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-gray-400 text-lg">→</div>
+
+                            <!-- v1.3 -->
+                            <div class="w-[110px]">
+                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-2 shadow-sm">
+                                    <div class="text-center">
+                                        <div class="text-xs font-bold text-gray-700 mb-1">v1.3</div>
+                                        <div class="text-sm font-semibold text-gray-800">功能完善</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-gray-400 text-lg">→</div>
+
+                            <!-- v1.4 -->
+                            <div class="w-[110px]">
+                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-2 shadow-sm">
+                                    <div class="text-center">
+                                        <div class="text-xs font-bold text-gray-700 mb-1">v1.4</div>
+                                        <div class="text-sm font-semibold text-gray-800">逻辑修正</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-gray-400 text-lg">→</div>
+
+                            <!-- v1.5 -->
+                            <div class="w-[110px]">
+                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-2 shadow-sm">
+                                    <div class="text-center">
+                                        <div class="text-xs font-bold text-gray-700 mb-1">v1.5</div>
+                                        <div class="text-sm font-semibold text-gray-800">功能增强</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-gray-400 text-lg">→</div>
+
+                            <!-- v1.6 -->
+                            <div class="w-[110px]">
+                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-2 shadow-sm">
+                                    <div class="text-center">
+                                        <div class="text-xs font-bold text-gray-700 mb-1">v1.6</div>
+                                        <div class="text-sm font-semibold text-gray-800">PDF导出</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-gray-400 text-lg">→</div>
+
+                            <!-- v1.7 -->
+                            <div class="w-[110px]">
+                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-2 shadow-sm">
+                                    <div class="text-center">
+                                        <div class="text-xs font-bold text-gray-700 mb-1">v1.7</div>
+                                        <div class="text-sm font-semibold text-gray-800">PDF完善</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-gray-400 text-lg">→</div>
+
+                            <!-- v1.8 -->
+                            <div class="w-[110px]">
+                                <div class="bg-teal-50 border-2 border-teal-300 rounded-lg p-2 shadow-sm">
+                                    <div class="text-center">
+                                        <div class="text-xs font-bold text-teal-700 mb-1">v1.8</div>
+                                        <div class="text-sm font-semibold text-teal-900">SPC修正</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 版本详情 -->
+                <div class="mb-8">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4">版本详情</h3>
+
+                    <!-- v1.0 -->
+                    <div class="mb-6 bg-gradient-to-r from-sky-50 to-blue-50 border border-sky-200 rounded-lg p-5 shadow-sm">
+                        <div class="flex items-center mb-3">
+                            <span class="bg-sky-400 text-white px-3 py-1 rounded-full text-sm font-bold mr-3">v1.0</span>
+                            <h4 class="text-lg font-bold text-gray-800">初始版本</h4>
+                            <span class="text-sm text-gray-500 ml-auto">2026-02-25</span>
+                        </div>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            <p><strong>文件名</strong>：spc-worksheet-v1.0.html</p>
+                            <p><strong>核心功能</strong>：</p>
+                            <ul class="list-disc list-inside ml-4 space-y-1">
+                                <li>5个标签页：版本履历、步骤说明、数据输入、控制图、过程能力</li>
+                                <li>支持Xbar-R、Xbar-S、I-MR三种控制图类型</li>
+                                <li>Nelson Rules（8条判异准则）实现完整判异检测</li>
+                                <li>过程能力分析（Cp、Cpk、Pp、Ppk）</li>
+                                <li>控制限计算（UCL、CL、LCL基于A₂、D₃、D₄系数）</li>
+                                <li>Chart.js控制图可视化，带控制限标注</li>
+                                <li>数据输入表格支持均值、极差、标准差实时计算</li>
+                                <li>Excel导出功能（ExcelJS + FileSaver）</li>
+                                <li>自动演示流程</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- v1.1 -->
+                    <div class="mb-6 bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-200 rounded-lg p-5 shadow-sm">
+                        <div class="flex items-center mb-3">
+                            <span class="bg-emerald-400 text-white px-3 py-1 rounded-full text-sm font-bold mr-3">v1.1</span>
+                            <h4 class="text-lg font-bold text-gray-800">修复优化</h4>
+                            <span class="text-sm text-gray-500 ml-auto">2026-02-25</span>
+                        </div>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <p class="font-semibold text-blue-700 mb-2">修复（3项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>简化判异准则示意图，采用简洁的线条+点表示方式</li>
+                                        <li>修复版本履历页面显示的乱码问题</li>
+                                        <li>修复数据输入3位小数格式化功能</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <p class="font-semibold text-green-700 mb-2">优化（3项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>优化控制图展示方式，从左到右打印式顺序出现</li>
+                                        <li>添加平滑过渡动画，提升用户体验</li>
+                                        <li>统一底部版权信息格式</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v1.2 -->
+                    <div class="mb-6 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-lg p-5 shadow-sm">
+                        <div class="flex items-center mb-3">
+                            <span class="bg-orange-400 text-white px-3 py-1 rounded-full text-sm font-bold mr-3">v1.2</span>
+                            <h4 class="text-lg font-bold text-gray-800">界面优化</h4>
+                            <span class="text-sm text-gray-500 ml-auto">2026-02-25</span>
+                        </div>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <p class="font-semibold text-blue-700 mb-2">优化（2项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>恢复判异准则为单列布局，提升可读性</li>
+                                        <li>简化示意图样式，减小数据点大小（8px→5px）</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <p class="font-semibold text-green-700 mb-2">改进（2项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>移除示意图的多余色块，采用简洁线条标注</li>
+                                        <li>优化图例说明，更加直观清晰</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v1.3 -->
+                    <div class="mb-6 bg-gradient-to-r from-rose-50 to-pink-50 border border-rose-200 rounded-lg p-5 shadow-sm">
+                        <div class="flex items-center mb-3">
+                            <span class="bg-rose-400 text-white px-3 py-1 rounded-full text-sm font-bold mr-3">v1.3</span>
+                            <h4 class="text-lg font-bold text-gray-800">功能完善</h4>
+                            <span class="text-sm text-gray-500 ml-auto">2026-02-25</span>
+                        </div>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <p class="font-semibold text-blue-700 mb-2">优化（3项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>版本详情文字块添加渐变背景配色</li>
+                                        <li>判异准则恢复为两列布局，取消示意图</li>
+                                        <li>控制图失控点用红色实心圆点突出显示</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <p class="font-semibold text-green-700 mb-2">改进（1项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>保持异常点检测逻辑不变，规则7和8判断正确</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v1.4 -->
+                    <div class="mb-6 bg-gradient-to-r from-cyan-50 to-teal-50 border border-cyan-200 rounded-lg p-5 shadow-sm">
+                        <div class="flex items-center mb-3">
+                            <span class="bg-cyan-400 text-white px-3 py-1 rounded-full text-sm font-bold mr-3">v1.4</span>
+                            <h4 class="text-lg font-bold text-gray-800">逻辑修正</h4>
+                            <span class="text-sm text-gray-500 ml-auto">2026-02-25</span>
+                        </div>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <p class="font-semibold text-blue-700 mb-2">修正（3项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>修正异常点分类：规则1-6为失控点，规则7-8为数据质量警示</li>
+                                        <li>控制图仅将失控点（规则1-6）标红，数据警示点保持正常颜色</li>
+                                        <li>异常详情分为"失控点详情"和"数据质量警示"两个部分显示</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <p class="font-semibold text-green-700 mb-2">优化（1项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>统一8条判异规则的图标颜色为蓝色系，保持视觉和谐</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v1.5 -->
+                    <div class="mb-6 bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200 rounded-lg p-5 shadow-sm">
+                        <div class="flex items-center mb-3">
+                            <span class="bg-violet-400 text-white px-3 py-1 rounded-full text-sm font-bold mr-3">v1.5</span>
+                            <h4 class="text-lg font-bold text-gray-800">功能增强</h4>
+                            <span class="text-sm text-gray-500 ml-auto">2026-02-25</span>
+                        </div>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <p class="font-semibold text-blue-700 mb-2">新增（1项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>完整的Excel导出功能，包含所有页面内容</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <p class="font-semibold text-green-700 mb-2">改进（4项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>版本履历页：版本演进时间线和详情</li>
+                                        <li>步骤说明页：8条Nelson Rules判异准则</li>
+                                        <li>数据输入页：参数设置和完整数据表格</li>
+                                        <li>控制图页：分析结果和过程状态判定</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v1.6 -->
+                    <div class="mb-6 bg-gradient-to-r from-teal-50 to-cyan-50 border border-teal-200 rounded-lg p-5 shadow-sm">
+                        <div class="flex items-center mb-3">
+                            <span class="bg-teal-400 text-white px-3 py-1 rounded-full text-sm font-bold mr-3">v1.6</span>
+                            <h4 class="text-lg font-bold text-gray-800">PDF导出</h4>
+                            <span class="text-sm text-gray-500 ml-auto">2026-02-25</span>
+                        </div>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <p class="font-semibold text-blue-700 mb-2">新增（1项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>完整的PDF导出功能，HTML所见即PDF所得</li>
+                                        <li>使用html2canvas + jsPDF实现高质量PDF输出</li>
+                                        <li>完整保留HTML页面的所有视觉样式和配色</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <p class="font-semibold text-green-700 mb-2">改进（1项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>新增PDF导出按钮，与Excel导出并列</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v1.7 -->
+                    <div class="mb-6 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-lg p-5 shadow-sm">
+                        <div class="flex items-center mb-3">
+                            <span class="bg-indigo-400 text-white px-3 py-1 rounded-full text-sm font-bold mr-3">v1.7</span>
+                            <h4 class="text-lg font-bold text-gray-800">PDF完善</h4>
+                            <span class="text-sm text-gray-500 ml-auto">2026-02-25</span>
+                        </div>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <p class="font-semibold text-blue-700 mb-2">新增（4项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>PDF每页添加标题"SPC统计过程控制工作表"</li>
+                                        <li>PDF每页底部添加编制信息和日期签名栏</li>
+                                        <li>优化PDF分页处理，避免内容被切断</li>
+                                        <li>数据输入表格禁止单元格拖拽，允许多选复制</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <p class="font-semibold text-green-700 mb-2">改进（1项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>移除HTML页面底部的参考标准和规范文字</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v1.8 -->
+                    <div class="mb-6 bg-gradient-to-r from-teal-50 to-cyan-50 border-2 border-teal-300 rounded-lg p-5 shadow-sm">
+                        <div class="flex items-center mb-3">
+                            <span class="bg-teal-500 text-white px-3 py-1 rounded-full text-sm font-bold mr-3">v1.8</span>
+                            <h4 class="text-lg font-bold text-gray-800">SPC修正</h4>
+                            <span class="text-sm text-gray-500 ml-auto">2026-02-25</span>
+                        </div>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <p class="font-semibold text-blue-700 mb-2">修正（1项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li><strong>控制图类型支持</strong>：修复控制图和过程能力未根据选择的图表类型生成的问题</li>
+                                        <li class="ml-4 text-gray-600">Xbar-R图：使用A₂、D₃、D₄系数，计算Xbar和R控制限</li>
+                                        <li class="ml-4 text-gray-600">Xbar-S图：使用A₃、B₃、B₄系数，计算Xbar和S控制限</li>
+                                        <li class="ml-4 text-gray-600">I-MR图：使用E₂系数，计算单值I和移动极差MR控制限</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <p class="font-semibold text-green-700 mb-2">改进（2项）</p>
+                                    <ul class="list-disc list-inside space-y-1 text-xs ml-3">
+                                        <li>计算逻辑完全遵循SPC理论，不同图表类型使用正确公式</li>
+                                        <li>图表显示、参数标注、过程能力计算均根据图表类型动态调整</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 功能测试清单 -->
+                <div class="mb-8">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4">功能测试清单</h3>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div class="bg-white border border-gray-200 rounded p-3 flex items-center">
+                            <i class="fa fa-check-circle text-green-500 mr-2"></i>
+                            <span class="text-xs text-gray-700">版本履历</span>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded p-3 flex items-center">
+                            <i class="fa fa-check-circle text-green-500 mr-2"></i>
+                            <span class="text-xs text-gray-700">数据输入</span>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded p-3 flex items-center">
+                            <i class="fa fa-check-circle text-green-500 mr-2"></i>
+                            <span class="text-xs text-gray-700">实时计算</span>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded p-3 flex items-center">
+                            <i class="fa fa-check-circle text-green-500 mr-2"></i>
+                            <span class="text-xs text-gray-700">控制图绘制</span>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded p-3 flex items-center">
+                            <i class="fa fa-check-circle text-green-500 mr-2"></i>
+                            <span class="text-xs text-gray-700">判异检测</span>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded p-3 flex items-center">
+                            <i class="fa fa-check-circle text-green-500 mr-2"></i>
+                            <span class="text-xs text-gray-700">过程能力</span>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded p-3 flex items-center">
+                            <i class="fa fa-check-circle text-green-500 mr-2"></i>
+                            <span class="text-xs text-gray-700">Excel导出</span>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded p-3 flex items-center">
+                            <i class="fa fa-check-circle text-green-500 mr-2"></i>
+                            <span class="text-xs text-gray-700">自动演示</span>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded p-3 flex items-center">
+                            <i class="fa fa-check-circle text-green-500 mr-2"></i>
+                            <span class="text-xs text-gray-700">响应式设计</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 版本演进总结 -->
+                <div class="mb-8">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4">版本演进总结</h3>
+                    <div class="bg-white border border-gray-200 rounded-lg p-5 shadow-sm overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-3 py-2 text-left">版本</th>
+                                    <th class="px-3 py-2 text-left">日期</th>
+                                    <th class="px-3 py-2 text-left">类型</th>
+                                    <th class="px-3 py-2 text-left">主要变更</th>
+                                    <th class="px-3 py-2 text-right">文件大小</th>
+                                    <th class="px-3 py-2 text-right">代码行数</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="border-t">
+                                    <td class="px-3 py-2 font-semibold text-gray-700">v1.0</td>
+                                    <td class="px-3 py-2">2026-02-25</td>
+                                    <td class="px-3 py-2"><span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs">初始版本</span></td>
+                                    <td class="px-3 py-2">完整SPC分析功能实现</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">94 KB</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">1,640</td>
+                                </tr>
+                                <tr class="border-t">
+                                    <td class="px-3 py-2 font-semibold text-gray-700">v1.1</td>
+                                    <td class="px-3 py-2">2026-02-25</td>
+                                    <td class="px-3 py-2"><span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs">修复优化</span></td>
+                                    <td class="px-3 py-2">修复按钮颜色、计算功能、乱码问题</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">97 KB</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">1,702</td>
+                                </tr>
+                                <tr class="border-t">
+                                    <td class="px-3 py-2 font-semibold text-gray-700">v1.2</td>
+                                    <td class="px-3 py-2">2026-02-25</td>
+                                    <td class="px-3 py-2"><span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs">界面优化</span></td>
+                                    <td class="px-3 py-2">优化布局、简化示意图、改进版本履历</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">101 KB</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">1,752</td>
+                                </tr>
+                                <tr class="border-t">
+                                    <td class="px-3 py-2 font-semibold text-gray-700">v1.3</td>
+                                    <td class="px-3 py-2">2026-02-25</td>
+                                    <td class="px-3 py-2"><span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs">功能完善</span></td>
+                                    <td class="px-3 py-2">改进失控点标记、异常详情显示、取消示意图</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">94 KB</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">1,677</td>
+                                </tr>
+                                <tr class="border-t">
+                                    <td class="px-3 py-2 font-semibold text-gray-700">v1.4</td>
+                                    <td class="px-3 py-2">2026-02-25</td>
+                                    <td class="px-3 py-2"><span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs">逻辑修正</span></td>
+                                    <td class="px-3 py-2">修正异常点分类、修复计算按钮、优化配色</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">99 KB</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">1,749</td>
+                                </tr>
+                                <tr class="border-t">
+                                    <td class="px-3 py-2 font-semibold text-gray-700">v1.5</td>
+                                    <td class="px-3 py-2">2026-02-25</td>
+                                    <td class="px-3 py-2"><span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs">功能增强</span></td>
+                                    <td class="px-3 py-2">完整Excel导出，包含所有页面内容</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">118 KB</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">2,113</td>
+                                </tr>
+                                <tr class="border-t">
+                                    <td class="px-3 py-2 font-semibold text-gray-700">v1.6</td>
+                                    <td class="px-3 py-2">2026-02-25</td>
+                                    <td class="px-3 py-2"><span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs">功能增强</span></td>
+                                    <td class="px-3 py-2">添加PDF导出，HTML所见即PDF所得</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">126 KB</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">2,280</td>
+                                </tr>
+                                <tr class="border-t">
+                                    <td class="px-3 py-2 font-semibold text-gray-700">v1.7</td>
+                                    <td class="px-3 py-2">2026-02-25</td>
+                                    <td class="px-3 py-2"><span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs">PDF完善</span></td>
+                                    <td class="px-3 py-2">添加PDF标题、编制信息、优化分页、单元格拖拽限制</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">131 KB</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">2,437</td>
+                                </tr>
+                                <tr class="border-t bg-teal-50">
+                                    <td class="px-3 py-2 font-semibold text-teal-600">v1.8</td>
+                                    <td class="px-3 py-2">2026-02-25</td>
+                                    <td class="px-3 py-2"><span class="bg-teal-100 text-teal-800 px-2 py-1 rounded text-xs">SPC修正</span></td>
+                                    <td class="px-3 py-2">修正控制图类型计算逻辑，支持Xbar-R/Xbar-S/I-MR正确公式</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">136 KB</td>
+                                    <td class="px-3 py-2 text-right font-mono text-xs">2,570</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 步骤说明内容 -->
+            <div id="content-steps" class="p-6 tab-content">
+                <div class="space-y-4">
+                    <div class="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-500">
+                        <h3 class="font-bold text-blue-700">步骤 1: 准备阶段</h3>
+                        <ul class="list-disc list-inside mt-2 text-gray-700">
+                            <li>确定需要控制的质量特性</li>
+                            <li>选择合适的控制图类型（Xbar-R、Xbar-S、I-MR等）</li>
+                            <li>确定合理的子组大小（通常3-5个数据）</li>
+                            <li>确定抽样频率（每小时、每班、每天等）</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-green-50 p-4 rounded-lg border-l-4 border-green-500">
+                        <h3 class="font-bold text-green-700">步骤 2: 数据收集</h3>
+                        <ul class="list-disc list-inside mt-2 text-gray-700">
+                            <li>按照抽样计划收集数据</li>
+                            <li>确保测量系统可靠（建议先做MSA分析）</li>
+                            <li>记录测量值到数据表（精确到小数点后3位）</li>
+                            <li>建议至少收集25个子组（约100个数据点）</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-yellow-50 p-4 rounded-lg border-l-4 border-yellow-500">
+                        <h3 class="font-bold text-yellow-700">步骤 3: 计算控制限</h3>
+                        <ul class="list-disc list-inside mt-2 text-gray-700">
+                            <li>计算每个子组的均值（X̄）和极差（R）</li>
+                            <li>计算总均值（X̄̄）和平均极差（R̄）</li>
+                            <li>根据控制图常数计算控制限</li>
+                            <li>UCL = X̄̄ + A₂×R̄, LCL = X̄̄ - A₂×R̄</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-purple-50 p-4 rounded-lg border-l-4 border-purple-500">
+                        <h3 class="font-bold text-purple-700">步骤 4: 绘制控制图</h3>
+                        <ul class="list-disc list-inside mt-2 text-gray-700">
+                            <li>绘制Xbar图（均值图）和R图（极差图）</li>
+                            <li>标注中心线（CL）、上控制限（UCL）、下控制限（LCL）</li>
+                            <li>检查是否有超出控制限的点</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-red-50 p-4 rounded-lg border-l-4 border-red-500">
+                        <h3 class="font-bold text-red-700">步骤 5: 过程能力分析</h3>
+                        <ul class="list-disc list-inside mt-2 text-gray-700">
+                            <li>输入规格上限（USL）和规格下限（LSL）</li>
+                            <li>计算过程能力指数（Cp、Cpk）</li>
+                            <li>评估过程是否满足规格要求</li>
+                            <li>Cp ≥ 1.33 表示过程能力充足</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-indigo-50 p-4 rounded-lg border-l-4 border-indigo-500">
+                        <h3 class="font-bold text-indigo-700">控制图判异准则（Nelson Rules / Western Electric）</h3>
+                        <p class="text-xs text-gray-600 mb-3">基于GB/T 4091-2001标准和Nelson Rules（1984），共8条判异准则</p>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <!-- 规则1 -->
+                            <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="bg-blue-400 text-white px-2 py-0.5 rounded text-xs font-bold">规则 1</span>
+                                    <span class="font-semibold text-blue-600">单点超出3σ控制限</span>
+                                </div>
+                                <p class="text-xs text-gray-600">任何单个数据点超出UCL或LCL，表明过程存在特殊原因变异</p>
+                            </div>
+
+                            <!-- 规则2 -->
+                            <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="bg-blue-400 text-white px-2 py-0.5 rounded text-xs font-bold">规则 2</span>
+                                    <span class="font-semibold text-blue-600">连续9点在中心线同侧</span>
+                                </div>
+                                <p class="text-xs text-gray-600">连续9个数据点落在中心线同一侧，表明过程均值发生偏移</p>
+                            </div>
+
+                            <!-- 规则3 -->
+                            <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="bg-blue-400 text-white px-2 py-0.5 rounded text-xs font-bold">规则 3</span>
+                                    <span class="font-semibold text-blue-600">连续6点上升或下降趋势</span>
+                                </div>
+                                <p class="text-xs text-gray-600">连续6个点持续上升或下降，表明过程存在趋势性变化</p>
+                            </div>
+
+                            <!-- 规则4 -->
+                            <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="bg-blue-400 text-white px-2 py-0.5 rounded text-xs font-bold">规则 4</span>
+                                    <span class="font-semibold text-blue-600">连续14点交替上下</span>
+                                </div>
+                                <p class="text-xs text-gray-600">连续14个点交替上升和下降，表明存在系统性的周期性变异</p>
+                            </div>
+
+                            <!-- 规则5 -->
+                            <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="bg-blue-400 text-white px-2 py-0.5 rounded text-xs font-bold">规则 5</span>
+                                    <span class="font-semibold text-blue-600">连续3点中有2点落在2σ外（同侧）</span>
+                                </div>
+                                <p class="text-xs text-gray-600">连续3个点中至少有2个落在中心线同一侧的2σ以外区域</p>
+                            </div>
+
+                            <!-- 规则6 -->
+                            <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="bg-blue-400 text-white px-2 py-0.5 rounded text-xs font-bold">规则 6</span>
+                                    <span class="font-semibold text-blue-600">连续5点中有4点落在1σ外（同侧）</span>
+                                </div>
+                                <p class="text-xs text-gray-600">连续5个点中至少有4个落在中心线同一侧的1σ以外区域</p>
+                            </div>
+
+                            <!-- 规则7 -->
+                            <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="bg-blue-400 text-white px-2 py-0.5 rounded text-xs font-bold">规则 7</span>
+                                    <span class="font-semibold text-blue-600">连续15点在1σ范围内</span>
+                                </div>
+                                <p class="text-xs text-gray-600">连续15个点都落在中心线两侧的1σ范围内，表明可能存在分层或测量分辨力不足</p>
+                            </div>
+
+                            <!-- 规则8 -->
+                            <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="bg-blue-400 text-white px-2 py-0.5 rounded text-xs font-bold">规则 8</span>
+                                    <span class="font-semibold text-blue-600">连续8点在1σ范围外（两侧）</span>
+                                </div>
+                                <p class="text-xs text-gray-600">连续8个点都落在中心线两侧的1σ范围之外，表明存在混合模式</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 数据输入内容 -->
+            <div id="content-data" class="p-6 hidden tab-content">
+                <div class="mb-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-3">参数设置</h3>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">子组数量</label>
+                            <input type="number" id="numSubgroups" value="25" min="1" max="100"
+                                class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                onchange="generateTable()">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">子组大小</label>
+                            <input type="number" id="subgroupSize" value="5" min="1" max="10"
+                                class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                onchange="generateTable()">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">控制图类型</label>
+                            <select id="chartType" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="xbar-r">Xbar-R 控制图</option>
+                                <option value="xbar-s">Xbar-S 控制图</option>
+                                <option value="i-mr">I-MR 控制图</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">规格上限 (USL)</label>
+                            <input type="number" id="usl" value="" step="0.001"
+                                class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="可选">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">规格下限 (LSL)</label>
+                            <input type="number" id="lsl" value="" step="0.001"
+                                class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="可选">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">目标值 (Target)</label>
+                            <input type="number" id="target" value="" step="0.001"
+                                class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="可选">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-4 flex flex-wrap gap-4">
+                    <button onclick="runDemo()" class="bg-purple-400 text-white px-4 py-2 rounded hover:bg-purple-500">
+                        <i class="fa fa-play"></i> 自动演示
+                    </button>
+                    <button onclick="loadSampleData()" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">
+                        <i class="fa fa-database"></i> 加载示例数据
+                    </button>
+                    <button onclick="clearData()" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
+                        <i class="fa fa-trash"></i> 清空数据
+                    </button>
+                    <button onclick="calculateAnalysisAndShow()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                        <i class="fa fa-calculator"></i> 计算分析
+                    </button>
+                    <button onclick="exportToExcel()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                        <i class="fa fa-file-excel-o"></i> 导出Excel
+                    </button>
+                    <button onclick="exportToPDF()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                        <i class="fa fa-file-pdf-o"></i> 导出PDF
+                    </button>
+                </div>
+
+                <div id="dataTable" class="overflow-x-auto">
+                    <!-- 数据表格将动态生成 -->
+                </div>
+
+                <!-- 数据输入提示 -->
+                <div class="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h4 class="text-sm font-semibold text-blue-800 mb-2">
+                        <i class="fa fa-info-circle"></i> 数据输入提示
+                    </h4>
+                    <ul class="text-xs text-blue-700 space-y-1">
+                        <li>• <strong>手动输入</strong>：点击单元格直接输入数据，按Enter键移动到下一个单元格</li>
+                        <li>• <strong>从Excel粘贴</strong>：在Excel中复制数据区域，点击表格中的起始单元格，按Ctrl+V粘贴</li>
+                        <li>• <strong>批量粘贴</strong>：支持一次性粘贴多行多列数据，数据会自动填充到相应位置</li>
+                        <li>• <strong>数据验证</strong>：系统会自动验证输入是否为有效数值，并保留3位小数</li>
+                    </ul>
+                </div>
+
+            </div>
+
+            <!-- 控制图内容（包含分析结果） -->
+            <div id="content-charts" class="p-6 hidden tab-content">
+                <div id="chartsContent">
+                    <p class="text-gray-500 text-center py-8">请先计算分析结果</p>
+                </div>
+            </div>
+
+            <!-- 过程能力内容 -->
+            <div id="content-capabilities" class="p-6 hidden tab-content">
+                <div id="capabilitiesContent">
+                    <p class="text-gray-500 text-center py-8">请先输入规格限并计算分析</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center text-sm text-gray-600 mt-6">
+            <p>SPC 统计过程控制工作表 v1.8 | 作者：zhitang | 2026-02-25</p>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let dataValues = [];
+        let results = {};
+        let xbarChart = null;
+        let rChart = null;
+        let capabilityChart = null;
+
+        // 控制图常数
+        const constants = {
+            A2: {2: 1.880, 3: 1.023, 4: 0.729, 5: 0.577, 6: 0.483, 7: 0.419, 8: 0.373, 9: 0.337, 10: 0.308},
+            D3: {2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0.076, 8: 0.136, 9: 0.184, 10: 0.223},
+            D4: {2: 3.267, 3: 2.574, 4: 2.282, 5: 2.114, 6: 2.004, 7: 1.924, 8: 1.864, 9: 1.816, 10: 1.777},
+            A3: {2: 2.659, 3: 1.954, 4: 1.628, 5: 1.427, 6: 1.287, 7: 1.182, 8: 1.099, 9: 1.032, 10: 0.975},
+            B3: {2: 0, 3: 0, 4: 0, 5: 0, 6: 0.030, 7: 0.118, 8: 0.185, 9: 0.239, 10: 0.284},
+            B4: {2: 3.267, 3: 2.568, 4: 2.266, 5: 2.089, 6: 1.970, 7: 1.882, 8: 1.815, 9: 1.761, 10: 1.716},
+            E2: {2: 2.660, 3: 1.772, 4: 1.457, 5: 1.290, 6: 1.184, 7: 1.109, 8: 1.054, 9: 1.010, 10: 0.975},
+            D2: {2: 1.128, 3: 1.693, 4: 2.059, 5: 2.326, 6: 2.534, 7: 2.704, 8: 2.847, 9: 2.970, 10: 3.078},
+            c4: {2: 0.7979, 3: 0.8862, 4: 0.9213, 5: 0.9400, 6: 0.9515, 7: 0.9594, 8: 0.9650, 9: 0.9693, 10: 0.9727}
+        };
+
+        // 切换标签页
+        function switchTab(tabName) {
+            const tabs = ['history', 'steps', 'data', 'charts', 'capabilities'];
+            tabs.forEach(tab => {
+                document.getElementById('tab-' + tab).classList.remove('tab-active');
+                document.getElementById('content-' + tab).classList.add('hidden');
+            });
+            document.getElementById('tab-' + tabName).classList.add('tab-active');
+            document.getElementById('content-' + tabName).classList.remove('hidden');
+        }
+
+        // 生成数据表格
+        function generateTable() {
+            const numSubgroups = parseInt(document.getElementById('numSubgroups').value);
+            const subgroupSize = parseInt(document.getElementById('subgroupSize').value);
+
+            dataValues = [];
+            for (let i = 0; i < numSubgroups; i++) {
+                dataValues.push(new Array(subgroupSize).fill(''));
+            }
+
+            let html = '<div class="overflow-x-auto"><table class="w-full border-collapse">';
+
+            // 表头
+            html += '<thead><tr class="bg-blue-600 text-white">';
+            html += '<th class="border border-gray-300 px-1 py-2 text-xs">子组号</th>';
+            for (let j = 0; j < subgroupSize; j++) {
+                html += `<th class="border border-gray-300 px-1 py-2 text-xs">测量值${j + 1}</th>`;
+            }
+            html += '<th class="border border-gray-300 px-1 py-2 text-xs bg-green-600">均值 X̄</th>';
+            html += '<th class="border border-gray-300 px-1 py-2 text-xs bg-gray-600">极差 R</th>';
+            html += '<th class="border border-gray-300 px-1 py-2 text-xs bg-purple-600">标准差 S</th>';
+            html += '</tr></thead><tbody>';
+
+            // 数据行
+            for (let i = 0; i < numSubgroups; i++) {
+                html += `<tr class="${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}">`;
+                html += `<td class="border border-gray-300 px-1 py-2 font-semibold text-center text-xs">${i + 1}</td>`;
+
+                for (let j = 0; j < subgroupSize; j++) {
+                    html += `<td class="border border-gray-300 px-1 py-1 text-center data-cell text-xs"
+                        contenteditable="true"
+                        data-subgroup="${i}"
+                        data-observation="${j}"
+                        onblur="handleCellEdit(this)"></td>`;
+                }
+
+                html += `<td class="border border-gray-300 px-1 py-2 text-center font-mono mean-cell text-xs" id="mean-${i}">-</td>`;
+                html += `<td class="border border-gray-300 px-1 py-2 text-center font-mono range-cell text-xs" id="range-${i}">-</td>`;
+                html += `<td class="border border-gray-300 px-1 py-2 text-center font-mono stddev-cell text-xs" id="stddev-${i}">-</td>`;
+                html += '</tr>';
+            }
+
+            html += '</tbody></table></div>';
+            document.getElementById('dataTable').innerHTML = html;
+
+            // 绑定单元格事件
+            document.querySelectorAll('.data-cell').forEach(cell => {
+                cell.addEventListener('input', function() {
+                    const subgroup = parseInt(this.dataset.subgroup);
+                    const observation = parseInt(this.dataset.observation);
+                    const value = this.textContent === '' ? '' : parseFloat(this.textContent);
+                    dataValues[subgroup][observation] = value;
+                });
+
+                // 处理粘贴事件（支持从Excel批量粘贴）
+                cell.addEventListener('paste', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    // 获取粘贴的数据
+                    const pasteData = (e.clipboardData || window.clipboardData).getData('text');
+                    if (!pasteData) return;
+
+                    // 解析粘贴的数据（Excel使用制表符分隔列，换行符分隔行）
+                    const rows = pasteData.split(/\r\n|\n|\r/).filter(row => row.trim() !== '');
+
+                    if (rows.length === 0) return;
+
+                    // 获取当前单元格的位置
+                    const currentSubgroup = parseInt(this.dataset.subgroup);
+                    const currentObservation = parseInt(this.dataset.observation);
+                    const subgroupSize = parseInt(document.getElementById('subgroupSize').value);
+                    const numSubgroups = parseInt(document.getElementById('numSubgroups').value);
+
+                    // 遍历粘贴的每一行
+                    rows.forEach(function(rowData, rowIndex) {
+                        const targetSubgroup = currentSubgroup + rowIndex;
+
+                        // 检查是否超出子组数量
+                        if (targetSubgroup >= numSubgroups) return;
+
+                        // 分割列（Excel使用制表符）
+                        const cols = rowData.split('\t');
+
+                        // 遍历每一列
+                        cols.forEach(function(cellData, colIndex) {
+                            const targetObservation = currentObservation + colIndex;
+
+                            // 检查是否超出子组大小
+                            if (targetObservation >= subgroupSize) return;
+
+                            // 清理数据（去除可能的引号和空格）
+                            let value = cellData.trim();
+                            value = value.replace(/^['"]|['"]$/g, '');
+
+                            // 验证并转换数值
+                            if (value !== '') {
+                                const numValue = parseFloat(value);
+                                if (!isNaN(numValue)) {
+                                    // 更新数据
+                                    dataValues[targetSubgroup][targetObservation] = numValue;
+
+                                    // 更新单元格显示
+                                    const cellSelector = '.data-cell[data-subgroup="' + targetSubgroup + '"][data-observation="' + targetObservation + '"]';
+                                    const targetCell = document.querySelector(cellSelector);
+                                    if (targetCell) {
+                                        targetCell.textContent = numValue.toFixed(3);
+                                    }
+                                }
+                            }
+                        });
+
+                        // 更新该子组的统计量
+                        updateSubgroupStats(targetSubgroup);
+                    });
+                });
+
+                // 按Enter键移到下一个单元格
+                cell.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const nextCell = this.nextElementSibling;
+                        if (nextCell && nextCell.classList.contains('data-cell')) {
+                            nextCell.focus();
+                        } else {
+                            // 移到下一行的第一个单元格
+                            const nextRow = this.parentElement.nextElementSibling;
+                            if (nextRow) {
+                                const firstDataCell = nextRow.querySelector('.data-cell');
+                                if (firstDataCell) firstDataCell.focus();
+                            }
+                        }
+                    }
+                });
+
+                // 聚焦时选中所有文本
+                cell.addEventListener('focus', function() {
+                    const range = document.createRange();
+                    range.selectNodeContents(this);
+                    const selection = window.getSelection();
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                });
+
+                // 阻止拖拽事件
+                cell.addEventListener('dragstart', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                });
+                cell.addEventListener('drag', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                });
+                cell.addEventListener('dragend', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                });
+                cell.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                });
+                cell.addEventListener('dragenter', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                });
+                cell.addEventListener('dragleave', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                });
+                cell.addEventListener('drop', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                });
+            });
+
+            // 阻止整个表格的拖拽
+            const table = document.querySelector('#dataTable table');
+            if (table) {
+                table.addEventListener('dragstart', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                });
+                table.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                });
+                table.addEventListener('drop', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                });
+            }
+        }
+
+        // 处理单元格编辑完成
+        function handleCellEdit(cell) {
+            const text = cell.textContent.trim();
+
+            // 验证输入
+            if (text === '') {
+                dataValues[cell.dataset.subgroup][cell.dataset.observation] = '';
+                updateSubgroupStats(cell.dataset.subgroup);
+                return;
+            }
+
+            const value = parseFloat(text);
+            if (isNaN(value)) {
+                // 无效输入，清空
+                cell.textContent = '';
+                dataValues[cell.dataset.subgroup][cell.dataset.observation] = '';
+            } else {
+                // 格式化为3位小数
+                cell.textContent = value.toFixed(3);
+                dataValues[cell.dataset.subgroup][cell.dataset.observation] = value;
+            }
+            updateSubgroupStats(cell.dataset.subgroup);
+        }
+
+        // 更新子组统计量
+        function updateSubgroupStats(subgroupIndex) {
+            const subgroupData = dataValues[subgroupIndex].filter(v => v !== '');
+            if (subgroupData.length === 0) {
+                document.getElementById(`mean-${subgroupIndex}`).textContent = '-';
+                document.getElementById(`range-${subgroupIndex}`).textContent = '-';
+                document.getElementById(`stddev-${subgroupIndex}`).textContent = '-';
+                return;
+            }
+
+            const mean = subgroupData.reduce((a, b) => a + b, 0) / subgroupData.length;
+            const range = Math.max(...subgroupData) - Math.min(...subgroupData);
+            const variance = subgroupData.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / subgroupData.length;
+            const stddev = Math.sqrt(variance);
+
+            document.getElementById(`mean-${subgroupIndex}`).textContent = mean.toFixed(3);
+            document.getElementById(`range-${subgroupIndex}`).textContent = range.toFixed(3);
+            document.getElementById(`stddev-${subgroupIndex}`).textContent = stddev.toFixed(3);
+        }
+
+        // 加载示例数据
+        function loadSampleData() {
+            const numSubgroups = parseInt(document.getElementById('numSubgroups').value);
+            const subgroupSize = parseInt(document.getElementById('subgroupSize').value);
+
+            // 生成正态分布数据，均值=10，标准差=0.5
+            const targetMean = 10;
+            const targetStdDev = 0.5;
+
+            for (let i = 0; i < numSubgroups; i++) {
+                for (let j = 0; j < subgroupSize; j++) {
+                    // Box-Muller变换生成正态分布随机数
+                    const u1 = Math.random();
+                    const u2 = Math.random();
+                    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+                    const value = targetMean + targetStdDev * z;
+
+                    dataValues[i][j] = parseFloat(value.toFixed(3));
+                }
+            }
+
+            // 填充数据到表格
+            document.querySelectorAll('.data-cell').forEach(cell => {
+                const subgroup = parseInt(cell.dataset.subgroup);
+                const observation = parseInt(cell.dataset.observation);
+                cell.textContent = dataValues[subgroup][observation] !== '' ? dataValues[subgroup][observation].toFixed(3) : '';
+            });
+
+            // 更新所有子组的统计量
+            for (let i = 0; i < numSubgroups; i++) {
+                updateSubgroupStats(i);
+            }
+
+            // 设置示例规格限
+            document.getElementById('usl').value = '11.5';
+            document.getElementById('lsl').value = '8.5';
+            document.getElementById('target').value = '10.0';
+        }
+
+        // 清空数据
+        function clearData() {
+            document.querySelectorAll('.data-cell').forEach(cell => {
+                cell.textContent = '';
+            });
+            dataValues = [];
+            generateTable();
+        }
+
+        // 计算分析并显示控制图
+        function calculateAnalysisAndShow() {
+            calculateAnalysis();
+            // 平滑过渡到控制图页面
+            setTimeout(() => {
+                switchTab('charts');
+            }, 300);
+        }
+
+        // 计算分析
+        function calculateAnalysis() {
+            const numSubgroups = parseInt(document.getElementById('numSubgroups').value);
+            const subgroupSize = parseInt(document.getElementById('subgroupSize').value);
+            const chartType = document.getElementById('chartType').value;
+
+            // 收集子组统计量
+            let means = [];
+            let ranges = [];
+            let stddevs = [];
+            let allData = [];
+            let individualValues = []; // 用于I-MR图的单个值
+            let movingRanges = []; // 用于I-MR图的移动极差
+
+            for (let i = 0; i < numSubgroups; i++) {
+                const subgroupData = dataValues[i].filter(v => v !== '');
+                if (subgroupData.length > 0) {
+                    const mean = subgroupData.reduce((a, b) => a + b, 0) / subgroupData.length;
+                    const range = Math.max(...subgroupData) - Math.min(...subgroupData);
+                    const variance = subgroupData.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / subgroupData.length;
+                    const stddev = Math.sqrt(variance);
+
+                    means.push(mean);
+                    ranges.push(range);
+                    stddevs.push(stddev);
+                    allData.push(...subgroupData);
+
+                    // 对于I-MR图，收集所有单个测量值
+                    if (chartType === 'i-mr') {
+                        individualValues.push(...subgroupData);
+                    }
+                }
+            }
+
+            if (means.length === 0) {
+                alert('请先输入数据！');
+                return;
+            }
+
+            // 计算移动极差（仅用于I-MR图）
+            if (chartType === 'i-mr' && individualValues.length > 1) {
+                for (let i = 1; i < individualValues.length; i++) {
+                    movingRanges.push(Math.abs(individualValues[i] - individualValues[i - 1]));
+                }
+            }
+
+            // 根据控制图类型计算中心线和控制限
+            let chartCenterLine, chartUCL, chartLCL;
+            let secondChartCenterLine, secondChartUCL, secondChartLCL;
+            let secondChartValues = [];
+            let secondChartType = '';
+
+            const A2 = constants.A2[subgroupSize] || 0.577;
+            const D3 = constants.D3[subgroupSize] || 0;
+            const D4 = constants.D4[subgroupSize] || 2.114;
+            const A3 = constants.A3[subgroupSize] || 1.427;
+            const B3 = constants.B3[subgroupSize] || 0;
+            const B4 = constants.B4[subgroupSize] || 2.089;
+            const D2 = constants.D2[subgroupSize] || 2.326;
+            const E2 = constants.E2[2] || 2.660; // I-MR图使用n=2的E2值
+
+            if (chartType === 'xbar-r') {
+                // Xbar-R 图：使用极差R
+                const grandMean = means.reduce((a, b) => a + b, 0) / means.length;
+                const meanRange = ranges.reduce((a, b) => a + b, 0) / ranges.length;
+
+                chartCenterLine = grandMean;
+                chartUCL = grandMean + A2 * meanRange;
+                chartLCL = grandMean - A2 * meanRange;
+
+                secondChartCenterLine = meanRange;
+                secondChartUCL = D4 * meanRange;
+                secondChartLCL = D3 * meanRange;
+                secondChartValues = ranges;
+                secondChartType = 'R';
+
+                // 保存统计量用于过程能力计算
+                results.grandMean = grandMean;
+                results.meanRange = meanRange;
+                results.withinStdDev = meanRange / D2;
+
+            } else if (chartType === 'xbar-s') {
+                // Xbar-S 图：使用标准差S
+                const grandMean = means.reduce((a, b) => a + b, 0) / means.length;
+                const meanStdDev = stddevs.reduce((a, b) => a + b, 0) / stddevs.length;
+                const c4 = constants.c4[subgroupSize] || 0.9727; // c4常数用于计算σ估计
+
+                chartCenterLine = grandMean;
+                chartUCL = grandMean + A3 * meanStdDev;
+                chartLCL = grandMean - A3 * meanStdDev;
+
+                secondChartCenterLine = meanStdDev;
+                secondChartUCL = B4 * meanStdDev;
+                secondChartLCL = B3 * meanStdDev;
+                secondChartValues = stddevs;
+                secondChartType = 'S';
+
+                // 保存统计量用于过程能力计算
+                results.grandMean = grandMean;
+                results.meanStdDev = meanStdDev;
+                results.withinStdDev = meanStdDev / c4;
+
+            } else if (chartType === 'i-mr') {
+                // I-MR 图：单值和移动极差
+                if (individualValues.length === 0) {
+                    alert('请先输入数据！');
+                    return;
+                }
+
+                const individualMean = individualValues.reduce((a, b) => a + b, 0) / individualValues.length;
+                const meanMR = movingRanges.length > 0 ? movingRanges.reduce((a, b) => a + b, 0) / movingRanges.length : 0;
+
+                chartCenterLine = individualMean;
+                chartUCL = individualMean + E2 * meanMR;
+                chartLCL = individualMean - E2 * meanMR;
+
+                secondChartCenterLine = meanMR;
+                secondChartUCL = D4 * meanMR; // 对于MR图，n=2
+                secondChartLCL = D3 * meanMR; // 对于MR图，n=2
+                secondChartValues = movingRanges;
+                secondChartType = 'MR';
+
+                // 保存统计量用于过程能力计算
+                results.individualMean = individualMean;
+                results.meanMR = meanMR;
+                results.individualValues = individualValues;
+                results.movingRanges = movingRanges;
+                results.withinStdDev = meanMR / constants.D2[2]; // 使用n=2的D2值
+
+                // 对于I-MR图，means数组存储单个值以便统一处理
+                means = individualValues;
+            }
+
+            // 整体统计量（用于Pp/Ppk计算）
+            const overallMean = allData.reduce((a, b) => a + b, 0) / allData.length;
+            const overallVariance = allData.reduce((sum, val) => sum + Math.pow(val - overallMean, 2), 0) / allData.length;
+            const overallStdDev = Math.sqrt(overallVariance);
+
+            // 检测失控点
+            let outOfControlPoints = [];
+            let dataQualityWarnings = [];
+
+            // 检测第一个控制图的失控点
+            means.forEach((value, i) => {
+                if (value > chartUCL || value < chartLCL) {
+                    const type = (chartType === 'i-mr') ? 'I' : 'Xbar';
+                    outOfControlPoints.push({ subgroup: i + 1, type: type, value: value, reason: '规则1: 超出3σ控制限' });
+                }
+            });
+
+            // 检测第二个控制图的失控点
+            secondChartValues.forEach((value, i) => {
+                if (value > secondChartUCL || (secondChartLCL > 0 && value < secondChartLCL)) {
+                    outOfControlPoints.push({ subgroup: i + 1, type: secondChartType, value: value, reason: '超出控制限' });
+                }
+            });
+
+            // Nelson Rules 检测（仅对Xbar图和I图应用）
+            if (chartType !== 'i-mr' || means.length >= 8) {
+                const nelsonResult = applyNelsonRules(means, chartCenterLine, overallStdDev, chartUCL, chartLCL);
+                outOfControlPoints.push(...nelsonResult.violations);
+                dataQualityWarnings = [...nelsonResult.warnings];
+            }
+
+            // 过程能力计算
+            const usl = parseFloat(document.getElementById('usl').value);
+            const lsl = parseFloat(document.getElementById('lsl').value);
+            const target = parseFloat(document.getElementById('target').value);
+
+            let processCapability = null;
+            if (!isNaN(usl) || !isNaN(lsl)) {
+                const centerValue = results.grandMean || results.individualMean || overallMean;
+                const withinStdDev = results.withinStdDev;
+
+                // Cp 和 Cpk（使用组内标准差）
+                const cp = (!isNaN(usl) && !isNaN(lsl)) ? (usl - lsl) / (6 * withinStdDev) : null;
+                const cpu = !isNaN(usl) ? (usl - centerValue) / (3 * withinStdDev) : null;
+                const cpl = !isNaN(lsl) ? (centerValue - lsl) / (3 * withinStdDev) : null;
+                const cpk = Math.min(cpu || Infinity, cpl || Infinity);
+
+                // Pp 和 Ppk（使用整体标准差）
+                const pp = (!isNaN(usl) && !isNaN(lsl)) ? (usl - lsl) / (6 * overallStdDev) : null;
+                const ppu = !isNaN(usl) ? (usl - overallMean) / (3 * overallStdDev) : null;
+                const ppl = !isNaN(lsl) ? (overallMean - lsl) / (3 * overallStdDev) : null;
+                const ppk = Math.min(ppu || Infinity, ppl || Infinity);
+
+                processCapability = { cp, cpk, cpu, cpl, pp, ppk, ppu, ppl, usl, lsl, target };
+            }
+
+            // 保存结果
+            results = {
+                chartType, numSubgroups, subgroupSize,
+                chartCenterLine, chartUCL, chartLCL,
+                secondChartCenterLine, secondChartUCL, secondChartLCL,
+                secondChartType, secondChartValues,
+                overallMean, overallStdDev,
+                means, ranges, stddevs,
+                outOfControlPoints,
+                dataQualityWarnings,
+                processCapability,
+                constants: { A2, D3, D4, A3, B3, B4 }
+            };
+
+            updateChartsWithResults();
+            displayCapabilities();
+        }
+
+        // Nelson Rules 判异规则（完整的8条规则）
+        // 返回：{ violations: 真正的失控点(规则1-6), warnings: 数据质量警示(规则7-8) }
+        function applyNelsonRules(means, centerLine, stdDev, ucl, lcl) {
+            let violations = [];
+            let warnings = [];
+            const n = means.length;
+
+            // 规则1: 单点超出3σ控制限（已在前面检测）
+
+            // 规则2: 连续9点在中心线同侧
+            for (let i = 8; i < n; i++) {
+                const allAbove = means.slice(i - 8, i + 1).every(m => m >= centerLine);
+                const allBelow = means.slice(i - 8, i + 1).every(m => m < centerLine);
+                if (allAbove || allBelow) {
+                    violations.push({ subgroup: i + 1, type: 'Xbar', value: means[i], reason: '规则2: 连续9点在中心线同侧' });
+                }
+            }
+
+            // 规则3: 连续6点上升或下降趋势
+            for (let i = 5; i < n; i++) {
+                const increasing = means.slice(i - 5, i + 1).every((m, j) => j === 0 || means[i - 5 + j] < m);
+                const decreasing = means.slice(i - 5, i + 1).every((m, j) => j === 0 || means[i - 5 + j] > m);
+                if (increasing || decreasing) {
+                    violations.push({ subgroup: i + 1, type: 'Xbar', value: means[i], reason: '规则3: 连续6点上升/下降趋势' });
+                }
+            }
+
+            // 规则4: 连续14点交替上下
+            if (n >= 14) {
+                for (let i = 13; i < n; i++) {
+                    const alternating = means.slice(i - 13, i + 1).every((m, j) => {
+                        if (j === 0) return true;
+                        const prev = means[i - 13 + j - 1];
+                        const curr = m;
+                        return (prev < centerLine && curr >= centerLine) || (prev >= centerLine && curr < centerLine);
+                    });
+                    if (alternating) {
+                        violations.push({ subgroup: i + 1, type: 'Xbar', value: means[i], reason: '规则4: 连续14点交替上下' });
+                    }
+                }
+            }
+
+            // 规则5: 连续3点中有2点落在2σ外（同侧）
+            for (let i = 2; i < n; i++) {
+                const last3 = means.slice(i - 2, i + 1);
+                const above2sigma = last3.filter(m => m >= centerLine + 2 * stdDev).length;
+                const below2sigma = last3.filter(m => m <= centerLine - 2 * stdDev).length;
+                if (above2sigma >= 2 || below2sigma >= 2) {
+                    violations.push({ subgroup: i + 1, type: 'Xbar', value: means[i], reason: '规则5: 连续3点中有2点在2σ外（同侧）' });
+                }
+            }
+
+            // 规则6: 连续5点中有4点落在1σ外（同侧）
+            for (let i = 4; i < n; i++) {
+                const last5 = means.slice(i - 4, i + 1);
+                const above1sigma = last5.filter(m => m >= centerLine + 1 * stdDev).length;
+                const below1sigma = last5.filter(m => m <= centerLine - 1 * stdDev).length;
+                if (above1sigma >= 4 || below1sigma >= 4) {
+                    violations.push({ subgroup: i + 1, type: 'Xbar', value: means[i], reason: '规则6: 连续5点中有4点在1σ外（同侧）' });
+                }
+            }
+
+            // 规则7: 连续15点在1σ范围内（数据质量警示：分层）
+            for (let i = 14; i < n; i++) {
+                const within1sigma = means.slice(i - 14, i + 1).every(m =>
+                    m > centerLine - 1 * stdDev && m < centerLine + 1 * stdDev
+                );
+                if (within1sigma) {
+                    warnings.push({ subgroup: i + 1, type: 'Xbar', value: means[i], reason: '规则7: 连续15点在1σ范围内（数据分层）' });
+                }
+            }
+
+            // 规则8: 连续8点在1σ范围外（两侧）（数据质量警示：混合）
+            for (let i = 7; i < n; i++) {
+                const outside1sigma = means.slice(i - 7, i + 1).every(m =>
+                    m >= centerLine + 1 * stdDev || m <= centerLine - 1 * stdDev
+                );
+                if (outside1sigma) {
+                    warnings.push({ subgroup: i + 1, type: 'Xbar', value: means[i], reason: '规则8: 连续8点在1σ范围外（数据混合）' });
+                }
+            }
+
+            return { violations, warnings };
+        }
+
+        // 更新控制图和分析结果
+        function updateChartsWithResults() {
+            const {
+                chartType, means, chartCenterLine, chartUCL, chartLCL,
+                secondChartValues, secondChartCenterLine, secondChartUCL, secondChartLCL, secondChartType
+            } = results;
+
+            // 销毁旧图表
+            if (xbarChart) xbarChart.destroy();
+            if (rChart) rChart.destroy();
+
+            const labels = means.map((_, i) => i + 1);
+
+            // 生成完整的HTML，包括图表和分析结果
+            let resultsHtml = generateResultsHtml();
+
+            // 根据图表类型确定标题
+            let firstChartTitle, secondChartTitle, firstChartLabel, secondChartLabel;
+            let firstChartTypeForCheck;
+
+            if (chartType === 'xbar-r') {
+                firstChartTitle = 'Xbar 控制图';
+                secondChartTitle = 'R 控制图';
+                firstChartLabel = '子组均值';
+                secondChartLabel = '极差';
+                firstChartTypeForCheck = 'Xbar';
+            } else if (chartType === 'xbar-s') {
+                firstChartTitle = 'Xbar 控制图';
+                secondChartTitle = 'S 控制图';
+                firstChartLabel = '子组均值';
+                secondChartLabel = '标准差';
+                firstChartTypeForCheck = 'Xbar';
+            } else if (chartType === 'i-mr') {
+                firstChartTitle = 'I 控制图（单值）';
+                secondChartTitle = 'MR 控制图（移动极差）';
+                firstChartLabel = '单值';
+                secondChartLabel = '移动极差';
+                firstChartTypeForCheck = 'I';
+            }
+
+            let html = `
+                <div class="space-y-6">
+                    <!-- 第一个控制图 -->
+                    <div class="bg-white p-4 rounded-lg shadow">
+                        <h3 class="font-bold text-lg mb-4 text-gray-800">${firstChartTitle}</h3>
+                        <div class="relative" style="height: 350px;">
+                            <canvas id="xbarChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 第二个控制图 -->
+                    <div class="bg-white p-4 rounded-lg shadow">
+                        <h3 class="font-bold text-lg mb-4 text-gray-800">${secondChartTitle}</h3>
+                        <div class="relative" style="height: 300px;">
+                            <canvas id="rChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 分析结果 -->
+                    ${resultsHtml}
+                </div>
+            `;
+
+            document.getElementById('chartsContent').innerHTML = html;
+
+            // 绘制第一个控制图
+            setTimeout(() => {
+                const firstCanvas = document.getElementById('xbarChart');
+                if (firstCanvas) {
+                    xbarChart = new Chart(firstCanvas, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: firstChartLabel,
+                                data: means,
+                                borderColor: '#3b82f6',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                pointRadius: 4,
+                                pointHoverRadius: 6,
+                                pointBackgroundColor: function(context) {
+                                    const index = context.dataIndex;
+                                    const isViolated = results.outOfControlPoints.some(p =>
+                                        p.subgroup === index + 1 && p.type === firstChartTypeForCheck
+                                    );
+                                    return isViolated ? '#ef4444' : '#3b82f6';
+                                },
+                                pointBorderColor: function(context) {
+                                    const index = context.dataIndex;
+                                    const isViolated = results.outOfControlPoints.some(p =>
+                                        p.subgroup === index + 1 && p.type === firstChartTypeForCheck
+                                    );
+                                    return isViolated ? '#ef4444' : '#3b82f6';
+                                },
+                                fill: false,
+                                tension: 0,
+                                animation: {
+                                    duration: 1000,
+                                    easing: 'easeInOutQuart'
+                                }
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            animation: {
+                                duration: 1000,
+                                easing: 'easeInOutQuart'
+                            },
+                            plugins: {
+                                annotation: {
+                                    annotations: {
+                                        uclLine: {
+                                            type: 'line',
+                                            yMin: chartUCL,
+                                            yMax: chartUCL,
+                                            borderColor: 'rgb(239, 68, 68)',
+                                            borderWidth: 2,
+                                            borderDash: [5, 5],
+                                            label: {
+                                                display: true,
+                                                content: `UCL: ${chartUCL.toFixed(3)}`,
+                                                position: 'end',
+                                                backgroundColor: 'rgba(239, 68, 68, 0.8)'
+                                            }
+                                        },
+                                        clLine: {
+                                            type: 'line',
+                                            yMin: chartCenterLine,
+                                            yMax: chartCenterLine,
+                                            borderColor: 'rgb(59, 130, 246)',
+                                            borderWidth: 2,
+                                            label: {
+                                                display: true,
+                                                content: `CL: ${chartCenterLine.toFixed(3)}`,
+                                                position: 'end',
+                                                backgroundColor: 'rgba(59, 130, 246, 0.8)'
+                                            }
+                                        },
+                                        lclLine: {
+                                            type: 'line',
+                                            yMin: chartLCL,
+                                            yMax: chartLCL,
+                                            borderColor: 'rgb(239, 68, 68)',
+                                            borderWidth: 2,
+                                            borderDash: [5, 5],
+                                            label: {
+                                                display: true,
+                                                content: `LCL: ${chartLCL.toFixed(3)}`,
+                                                position: 'end',
+                                                backgroundColor: 'rgba(239, 68, 68, 0.8)'
+                                            }
+                                        }
+                                    }
+                                },
+                                legend: {
+                                    display: false
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            return `${firstChartLabel}: ${context.parsed.y.toFixed(4)}`;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: false,
+                                    grid: {
+                                        color: 'rgba(0, 0, 0, 0.05)'
+                                    }
+                                },
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: '子组号'
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // 绘制第二个控制图
+                const secondCanvas = document.getElementById('rChart');
+                if (secondCanvas) {
+                    rChart = new Chart(secondCanvas, {
+                        type: 'line',
+                        data: {
+                            labels: labels.slice(0, secondChartValues.length),
+                            datasets: [{
+                                label: secondChartLabel,
+                                data: secondChartValues,
+                                borderColor: '#f59e0b',
+                                backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                                pointRadius: 4,
+                                pointHoverRadius: 6,
+                                pointBackgroundColor: function(context) {
+                                    const index = context.dataIndex;
+                                    const isViolated = results.outOfControlPoints.some(p =>
+                                        p.subgroup === index + 1 && p.type === secondChartType
+                                    );
+                                    return isViolated ? '#ef4444' : '#f59e0b';
+                                },
+                                pointBorderColor: function(context) {
+                                    const index = context.dataIndex;
+                                    const isViolated = results.outOfControlPoints.some(p =>
+                                        p.subgroup === index + 1 && p.type === secondChartType
+                                    );
+                                    return isViolated ? '#ef4444' : '#f59e0b';
+                                },
+                                fill: false,
+                                tension: 0,
+                                animation: {
+                                    duration: 1000,
+                                    easing: 'easeInOutQuart'
+                                }
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            animation: {
+                                duration: 1000,
+                                easing: 'easeInOutQuart'
+                            },
+                            plugins: {
+                                annotation: {
+                                    annotations: {
+                                        uclLine: {
+                                            type: 'line',
+                                            yMin: secondChartUCL,
+                                            yMax: secondChartUCL,
+                                            borderColor: 'rgb(239, 68, 68)',
+                                            borderWidth: 2,
+                                            borderDash: [5, 5],
+                                            label: {
+                                                display: true,
+                                                content: `UCL: ${secondChartUCL.toFixed(3)}`,
+                                                position: 'end',
+                                                backgroundColor: 'rgba(239, 68, 68, 0.8)'
+                                            }
+                                        },
+                                        clLine: {
+                                            type: 'line',
+                                            yMin: secondChartCenterLine,
+                                            yMax: secondChartCenterLine,
+                                            borderColor: 'rgb(59, 130, 246)',
+                                            borderWidth: 2,
+                                            label: {
+                                                display: true,
+                                                content: `CL: ${secondChartCenterLine.toFixed(3)}`,
+                                                position: 'end',
+                                                backgroundColor: 'rgba(59, 130, 246, 0.8)'
+                                            }
+                                        },
+                                        lclLine: {
+                                            type: 'line',
+                                            yMin: secondChartLCL,
+                                            yMax: secondChartLCL,
+                                            borderColor: 'rgb(239, 68, 68)',
+                                            borderWidth: 2,
+                                            borderDash: [5, 5],
+                                            label: {
+                                                display: true,
+                                                content: secondChartLCL > 0 ? `LCL: ${secondChartLCL.toFixed(3)}` : 'LCL: 0',
+                                                position: 'end',
+                                                backgroundColor: 'rgba(239, 68, 68, 0.8)'
+                                            }
+                                        }
+                                    }
+                                },
+                                legend: {
+                                    display: false
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    grid: {
+                                        color: 'rgba(0, 0, 0, 0.05)'
+                                    }
+                                },
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: '子组号'
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }, 100);
+        }
+
+        // 生成分析结果HTML
+        function generateResultsHtml() {
+            const {
+                chartType, chartCenterLine, chartUCL, chartLCL,
+                secondChartCenterLine, secondChartUCL, secondChartLCL, secondChartType,
+                overallMean, overallStdDev, constants, numSubgroups, subgroupSize,
+                outOfControlPoints, dataQualityWarnings
+            } = results;
+
+            const inControl = outOfControlPoints.length === 0;
+
+            // 根据图表类型确定显示内容
+            let firstChartTitle, secondChartTitle, firstChartSymbol, secondChartSymbol;
+            let param1Name, param1Value, param2Name, param2Value;
+
+            if (chartType === 'xbar-r') {
+                firstChartTitle = 'Xbar 控制图';
+                secondChartTitle = 'R 控制图';
+                firstChartSymbol = 'X̄̄';
+                secondChartSymbol = 'R̄';
+                param1Name = 'A₂ 系数';
+                param1Value = constants.A2.toFixed(3);
+                param2Name = 'D₄/D₃ 系数';
+                param2Value = constants.D4.toFixed(3) + ' / ' + constants.D3.toFixed(3);
+            } else if (chartType === 'xbar-s') {
+                firstChartTitle = 'Xbar 控制图';
+                secondChartTitle = 'S 控制图';
+                firstChartSymbol = 'X̄̄';
+                secondChartSymbol = 'S̄';
+                param1Name = 'A₃ 系数';
+                param1Value = constants.A3.toFixed(3);
+                param2Name = 'B₄/B₃ 系数';
+                param2Value = constants.B4.toFixed(3) + ' / ' + constants.B3.toFixed(3);
+            } else if (chartType === 'i-mr') {
+                firstChartTitle = 'I 控制图（单值）';
+                secondChartTitle = 'MR 控制图（移动极差）';
+                firstChartSymbol = 'X̄';
+                secondChartSymbol = 'M̄R';
+                param1Name = 'E₂ 系数';
+                param1Value = '2.660';
+                param2Name = 'D₄/D₃ 系数';
+                param2Value = '3.267 / 0';
+            }
+
+            return `
+                <!-- 分析结果 -->
+                <div class="mt-8 space-y-6">
+                    <h3 class="font-bold text-xl text-gray-800 border-b pb-2">分析结果</h3>
+
+                    <!-- 控制图参数 -->
+                    <div class="bg-blue-50 p-4 rounded-lg">
+                        <h4 class="font-bold text-md mb-3 text-blue-800">控制图参数</h4>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">子组数量</div>
+                                <div class="text-xl font-bold text-blue-600">${numSubgroups}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">子组大小</div>
+                                <div class="text-xl font-bold text-blue-600">${subgroupSize}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">${param1Name}</div>
+                                <div class="text-xl font-bold text-blue-600">${param1Value}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">${param2Name}</div>
+                                <div class="text-xl font-bold text-blue-600">${param2Value}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 统计量汇总 -->
+                    <div class="bg-green-50 p-4 rounded-lg">
+                        <h4 class="font-bold text-md mb-3 text-green-800">统计量汇总</h4>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">${firstChartSymbol} 中心线</div>
+                                <div class="text-xl font-bold text-green-600">${chartCenterLine.toFixed(4)}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">${secondChartSymbol} 中心线</div>
+                                <div class="text-xl font-bold text-green-600">${secondChartCenterLine.toFixed(4)}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">整体均值 μ</div>
+                                <div class="text-xl font-bold text-green-600">${overallMean.toFixed(4)}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">整体标准差 σ</div>
+                                <div class="text-xl font-bold text-green-600">${overallStdDev.toFixed(4)}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 控制限 -->
+                    <div class="bg-yellow-50 p-4 rounded-lg">
+                        <h4 class="font-bold text-md mb-3 text-yellow-800">控制限</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="bg-white p-4 rounded-lg">
+                                <h5 class="font-semibold text-gray-700 mb-3">${firstChartTitle}</h5>
+                                <div class="space-y-2">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-gray-600">UCL (上控制限)</span>
+                                        <span class="font-mono font-bold text-red-600">${chartUCL.toFixed(4)}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center bg-blue-50 p-2 rounded">
+                                        <span class="text-sm text-gray-600">CL (中心线)</span>
+                                        <span class="font-mono font-bold text-blue-600">${chartCenterLine.toFixed(4)}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-gray-600">LCL (下控制限)</span>
+                                        <span class="font-mono font-bold text-red-600">${chartLCL.toFixed(4)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white p-4 rounded-lg">
+                                <h5 class="font-semibold text-gray-700 mb-3">${secondChartTitle}</h5>
+                                <div class="space-y-2">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-gray-600">UCL (上控制限)</span>
+                                        <span class="font-mono font-bold text-red-600">${secondChartUCL.toFixed(4)}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center bg-blue-50 p-2 rounded">
+                                        <span class="text-sm text-gray-600">CL (中心线)</span>
+                                        <span class="font-mono font-bold text-blue-600">${secondChartCenterLine.toFixed(4)}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-gray-600">LCL (下控制限)</span>
+                                        <span class="font-mono font-bold text-red-600">${secondChartLCL.toFixed(4)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 过程状态判定 -->
+                    <div class="bg-purple-50 p-4 rounded-lg">
+                        <h4 class="font-bold text-md mb-3 text-purple-800">过程状态判定</h4>
+                        <div class="p-4 rounded ${inControl ? 'good' : 'poor'}">
+                            <div class="text-center">
+                                <div class="text-2xl font-bold mb-2">${inControl ? '✅ 过程受控' : '❌ 过程失控'}</div>
+                                <div class="text-sm">检测到 ${outOfControlPoints.length} 个失控点</div>
+                            </div>
+                        </div>
+
+                        ${outOfControlPoints.length > 0 ? `
+                        <div class="mt-4 bg-white rounded-lg overflow-hidden">
+                            <h5 class="font-semibold text-gray-700 p-3 bg-red-50 border-l-4 border-red-500">失控点详情（需立即处理）</h5>
+                            <div class="max-h-60 overflow-y-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-3 py-2 text-left">子组号</th>
+                                            <th class="px-3 py-2 text-left">控制图</th>
+                                            <th class="px-3 py-2 text-left">数值</th>
+                                            <th class="px-3 py-2 text-left">异常原因</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${outOfControlPoints.map(p => `
+                                            <tr class="border-t">
+                                                <td class="px-3 py-2">${p.subgroup}</td>
+                                                <td class="px-3 py-2">${p.type}</td>
+                                                <td class="px-3 py-2 font-mono">${p.value.toFixed(4)}</td>
+                                                <td class="px-3 py-2 text-red-600">${p.reason}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        ${dataQualityWarnings && dataQualityWarnings.length > 0 ? `
+                        <div class="mt-4 bg-white rounded-lg overflow-hidden">
+                            <h5 class="font-semibold text-gray-700 p-3 bg-yellow-50 border-l-4 border-yellow-500">数据质量警示</h5>
+                            <div class="max-h-60 overflow-y-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-3 py-2 text-left">子组号</th>
+                                            <th class="px-3 py-2 text-left">控制图</th>
+                                            <th class="px-3 py-2 text-left">数值</th>
+                                            <th class="px-3 py-2 text-left">警示原因</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${dataQualityWarnings.map(p => `
+                                            <tr class="border-t">
+                                                <td class="px-3 py-2">${p.subgroup}</td>
+                                                <td class="px-3 py-2">${p.type}</td>
+                                                <td class="px-3 py-2 font-mono">${p.value.toFixed(4)}</td>
+                                                <td class="px-3 py-2 text-yellow-600">${p.reason}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        // 显示过程能力
+        function displayCapabilities() {
+            const pc = results.processCapability;
+
+            if (!pc) {
+                document.getElementById('capabilitiesContent').innerHTML = `
+                    <div class="text-center py-8">
+                        <i class="fa fa-info-circle text-4xl text-blue-500 mb-4"></i>
+                        <p class="text-gray-600">请在数据输入页面输入规格上限（USL）和规格下限（LSL）</p>
+                        <p class="text-sm text-gray-500 mt-2">然后重新点击"计算分析"以查看过程能力分析</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const { cp, cpk, cpu, cpl, pp, ppk, usl, lsl, target } = pc;
+
+            // Cp/Cpk 判定
+            let cpClass = cp >= 1.33 ? 'good' : (cp >= 1.0 ? 'warning' : 'poor');
+            let cpText = cp >= 1.33 ? '能力充足' : (cp >= 1.0 ? '能力尚可' : '能力不足');
+
+            let cpkClass = cpk >= 1.33 ? 'good' : (cpk >= 1.0 ? 'warning' : 'poor');
+            let cpkText = cpk >= 1.33 ? '能力充足，中心良好' : (cpk >= 1.0 ? '能力尚可' : '能力不足');
+
+            let html = `
+                <div class="space-y-6">
+                    <div class="bg-blue-50 p-4 rounded-lg">
+                        <h3 class="font-bold text-lg mb-3 text-blue-800">规格信息</h3>
+                        <div class="grid grid-cols-3 gap-4">
+                            <div class="bg-white p-3 rounded shadow-sm text-center">
+                                <div class="text-sm font-semibold text-gray-700">规格下限 (LSL)</div>
+                                <div class="text-2xl font-bold text-blue-600">${lsl.toFixed(3)}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm text-center">
+                                <div class="text-sm font-semibold text-gray-700">目标值 (Target)</div>
+                                <div class="text-2xl font-bold text-green-600">${target ? target.toFixed(3) : '-'}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm text-center">
+                                <div class="text-sm font-semibold text-gray-700">规格上限 (USL)</div>
+                                <div class="text-2xl font-bold text-blue-600">${usl.toFixed(3)}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-green-50 p-4 rounded-lg">
+                        <h3 class="font-bold text-lg mb-3 text-green-800">短期能力指数 (Cp/Cpk)</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">Cp</div>
+                                <div class="text-xs text-gray-500 font-mono mt-1">Cp = (USL-LSL) / (6σ<sub>within</sub>)</div>
+                                <div class="text-xl font-bold text-blue-600 mt-1">${cp.toFixed(3)}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">Cpu</div>
+                                <div class="text-xs text-gray-500 font-mono mt-1">Cpu = (USL-μ) / (3σ<sub>within</sub>)</div>
+                                <div class="text-xl font-bold text-blue-600 mt-1">${cpu.toFixed(3)}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">Cpl</div>
+                                <div class="text-xs text-gray-500 font-mono mt-1">Cpl = (μ-LSL) / (3σ<sub>within</sub>)</div>
+                                <div class="text-xl font-bold text-blue-600 mt-1">${cpl.toFixed(3)}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">Cpk</div>
+                                <div class="text-xs text-gray-500 font-mono mt-1">Cpk = min(Cpu, Cpl)</div>
+                                <div class="text-xl font-bold text-blue-600 mt-1">${cpk.toFixed(3)}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-yellow-50 p-4 rounded-lg">
+                        <h3 class="font-bold text-lg mb-3 text-yellow-800">长期能力指数 (Pp/Ppk)</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">Pp</div>
+                                <div class="text-xs text-gray-500 font-mono mt-1">Pp = (USL-LSL) / (6σ<sub>overall</sub>)</div>
+                                <div class="text-xl font-bold text-blue-600 mt-1">${pp.toFixed(3)}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">Ppu</div>
+                                <div class="text-xs text-gray-500 font-mono mt-1">Ppu = (USL-μ) / (3σ<sub>overall</sub>)</div>
+                                <div class="text-xl font-bold text-blue-600 mt-1">${pc.ppu.toFixed(3)}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">Ppl</div>
+                                <div class="text-xs text-gray-500 font-mono mt-1">Ppl = (μ-LSL) / (3σ<sub>overall</sub>)</div>
+                                <div class="text-xl font-bold text-blue-600 mt-1">${pc.ppl.toFixed(3)}</div>
+                            </div>
+                            <div class="bg-white p-3 rounded shadow-sm">
+                                <div class="text-sm font-semibold text-gray-700">Ppk</div>
+                                <div class="text-xs text-gray-500 font-mono mt-1">Ppk = min(Ppu, Ppl)</div>
+                                <div class="text-xl font-bold text-blue-600 mt-1">${ppk.toFixed(3)}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-purple-50 p-4 rounded-lg">
+                        <h3 class="font-bold text-lg mb-3 text-purple-800">能力判定</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="p-4 rounded ${cpClass}">
+                                <div class="font-bold text-lg mb-2">Cp 判定</div>
+                                <div class="text-3xl font-bold mb-2">${cp.toFixed(3)}</div>
+                                <div class="text-sm">${cpText}</div>
+                                <div class="text-xs text-gray-600 mt-2">Cp ≥ 1.33: 能力充足 | 1.0 ≤ Cp < 1.33: 能力尚可 | Cp < 1.0: 能力不足</div>
+                            </div>
+                            <div class="p-4 rounded ${cpkClass}">
+                                <div class="font-bold text-lg mb-2">Cpk 判定</div>
+                                <div class="text-3xl font-bold mb-2">${cpk.toFixed(3)}</div>
+                                <div class="text-sm">${cpkText}</div>
+                                <div class="text-xs text-gray-600 mt-2">Cpk ≥ 1.33: 能力充足 | 1.0 ≤ Cpk < 1.33: 能力尚可 | Cpk < 1.0: 能力不足</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-indigo-50 p-4 rounded-lg">
+                        <h3 class="font-bold text-lg mb-3 text-indigo-800">改进建议</h3>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            ${cp < 1.33 ? '<p><i class="fa fa-arrow-right text-indigo-600"></i> <strong>Cp偏低</strong>: 需要减少过程变异，考虑改进设备、工艺或培训操作人员</p>' : ''}
+                            ${cpk < cp ? '<p><i class="fa fa-arrow-right text-indigo-600"></i> <strong>Cpk < Cp</strong>: 过程均值偏离目标，需要调整过程中心以对准目标值</p>' : ''}
+                            ${cpu < cpl ? '<p><i class="fa fa-arrow-right text-indigo-600"></i> <strong>主要风险在上侧</strong>: 过程更接近规格上限，建议向下调整均值</p>' : ''}
+                            ${cpl < cpu ? '<p><i class="fa fa-arrow-right text-indigo-600"></i> <strong>主要风险在下侧</strong>: 过程更接近规格下限，建议向上调整均值</p>' : ''}
+                            ${ppk < 1.0 ? '<p><i class="fa fa-arrow-right text-indigo-600"></i> <strong>长期能力不足</strong>: 需要监控过程稳定性，减少特殊原因变异</p>' : ''}
+                            ${cp >= 1.33 && cpk >= 1.33 ? '<p><i class="fa fa-check-circle text-green-600"></i> <strong>过程能力良好</strong>: 当前过程能力充足，建议继续保持监控</p>' : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('capabilitiesContent').innerHTML = html;
+        }
+
+        // 导出Excel - 完整版本
+        async function exportToExcel() {
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'SPC工具';
+            workbook.created = new Date();
+
+            // 1. 版本履历页
+            await createVersionHistorySheet(workbook);
+
+            // 2. 步骤说明页
+            await createStepsSheet(workbook);
+
+            // 3. 数据输入页
+            await createDataSheet(workbook);
+
+            // 4. 控制图页（含分析结果）
+            await createChartsSheet(workbook);
+
+            // 5. 过程能力页
+            await createCapabilitySheet(workbook);
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            saveAs(blob, `SPC完整分析报告_${new Date().toISOString().slice(0,10)}.xlsx`);
+        }
+
+        // 导出PDF - 完整版本（HTML所见即PDF所得）
+        async function exportToPDF() {
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            const margin = 10;
+            const titleHeight = 25; // 标题区域高度
+            const footerHeight = 10; // 底部编制信息高度（调整后）
+            const safeMargin = 20; // 安全边距，确保同背景色内容不被切断
+            const contentWidth = pageWidth - 2 * margin;
+            const availableHeight = pageHeight - 2 * margin - titleHeight - footerHeight - safeMargin;
+
+            // 创建标题图片
+            const titleElement = document.querySelector('h1');
+            const tempDiv = document.createElement('div');
+            tempDiv.style.position = 'absolute';
+            tempDiv.style.left = '-9999px';
+            tempDiv.style.width = '800px';
+            tempDiv.style.fontSize = '30px'; // 与HTML中text-3xl对应
+            tempDiv.style.fontWeight = 'bold';
+            tempDiv.style.textAlign = 'center';
+            tempDiv.style.color = '#1d4ed8'; // text-blue-700
+            tempDiv.innerHTML = titleElement.innerHTML;
+            document.body.appendChild(tempDiv);
+
+            const titleCanvas = await html2canvas(tempDiv, {
+                scale: 3,
+                backgroundColor: 'transparent',
+                logging: false,
+                width: 800,
+                height: 60
+            });
+
+            document.body.removeChild(tempDiv);
+
+            const titleImgData = titleCanvas.toDataURL('image/png');
+            const titleImgWidth = 140;
+            const titleImgHeight = (titleCanvas.height / titleCanvas.width) * titleImgWidth;
+            const titleX = (pageWidth - titleImgWidth) / 2;
+
+            // 创建底部编制信息图片（使用图片方式避免乱码）
+            const createFooterImage = async () => {
+                const footerDiv = document.createElement('div');
+                footerDiv.style.position = 'absolute';
+                footerDiv.style.left = '-9999px';
+                footerDiv.style.width = '600px';
+                footerDiv.style.fontSize = '11px';
+                footerDiv.style.fontFamily = 'Arial, sans-serif';
+                footerDiv.style.color = '#646464';
+                footerDiv.style.padding = '10px 20px';
+                footerDiv.innerHTML = `
+                    <div style="display: flex; justify-content: flex-end; gap: 30px; align-items: center;">
+                        <div style="white-space: nowrap;">
+                            编制：__________________________
+                        </div>
+                        <div style="white-space: nowrap;">
+                            日期：__________________________
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(footerDiv);
+
+                const footerCanvas = await html2canvas(footerDiv, {
+                    scale: 3,
+                    backgroundColor: 'transparent',
+                    logging: false,
+                    width: 600,
+                    height: 50
+                });
+
+                document.body.removeChild(footerDiv);
+
+                return {
+                    imgData: footerCanvas.toDataURL('image/png'),
+                    width: (footerCanvas.width / footerCanvas.height) * 10,
+                    height: 10
+                };
+            };
+
+            const footerImg = await createFooterImage();
+
+            // 添加标题的函数
+            const addTitle = (pdf) => {
+                pdf.addImage(titleImgData, 'PNG', titleX, margin + 2, titleImgWidth, titleImgHeight);
+                pdf.setDrawColor(200, 200, 200);
+                pdf.setLineWidth(0.5);
+                pdf.line(margin, margin + titleHeight, pageWidth - margin, margin + titleHeight);
+            };
+
+            // 添加底部编制信息的函数
+            const addFooter = (pdf) => {
+                const footerY = pageHeight - margin - 8; // 距离底边8mm，确保在最下面一行
+                const footerX = pageWidth - margin - footerImg.width;
+                pdf.addImage(footerImg.imgData, 'PNG', footerX, footerY, footerImg.width, footerImg.height);
+            };
+
+            // 保存当前活动标签
+            const currentTab = document.querySelector('.tab-active').id.replace('tab-', '');
+            const dataContent = document.getElementById('content-data');
+            const chartsContent = document.getElementById('content-charts');
+            const capabilitiesContent = document.getElementById('content-capabilities');
+
+            // 保存原始样式
+            const originalDataDisplay = dataContent.style.display;
+            const originalDataOpacity = dataContent.style.opacity;
+            const originalChartsDisplay = chartsContent.style.display;
+            const originalChartsOpacity = chartsContent.style.opacity;
+            const originalCapabilitiesDisplay = capabilitiesContent.style.display;
+            const originalCapabilitiesOpacity = capabilitiesContent.style.opacity;
+
+            // 临时显示所有需要导出的内容
+            dataContent.style.display = 'block';
+            dataContent.style.opacity = '1';
+            chartsContent.style.display = 'block';
+            chartsContent.style.opacity = '1';
+            capabilitiesContent.style.display = 'block';
+            capabilitiesContent.style.opacity = '1';
+
+            // 等待DOM渲染完成
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            try {
+                // 页面1: 数据输入
+                addTitle(pdf);
+                addFooter(pdf);
+
+                const dataCanvas = await html2canvas(dataContent, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff',
+                    windowWidth: dataContent.scrollWidth + 100,
+                    windowHeight: dataContent.scrollHeight + 500
+                });
+
+                const dataImgData = dataCanvas.toDataURL('image/png');
+                const dataImgWidth = contentWidth;
+                const dataImgHeight = (dataCanvas.height * dataImgWidth) / dataCanvas.width;
+
+                let heightLeft = dataImgHeight;
+                let position = margin + titleHeight + 2; // 标题下方开始
+
+                pdf.addImage(dataImgData, 'PNG', margin, position, dataImgWidth, dataImgHeight);
+                heightLeft -= availableHeight;
+
+                while (heightLeft > 0) {
+                    pdf.addPage();
+                    addTitle(pdf);
+                    addFooter(pdf);
+                    position = margin + titleHeight + 2 - (dataImgHeight - heightLeft);
+                    pdf.addImage(dataImgData, 'PNG', margin, position, dataImgWidth, dataImgHeight);
+                    heightLeft -= availableHeight;
+                }
+
+                // 页面2: 控制图
+                pdf.addPage();
+                addTitle(pdf);
+                addFooter(pdf);
+
+                const chartsCanvas = await html2canvas(chartsContent, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff',
+                    windowWidth: chartsContent.scrollWidth + 100,
+                    windowHeight: chartsContent.scrollHeight + 500
+                });
+
+                const chartsImgData = chartsCanvas.toDataURL('image/png');
+                const chartsImgWidth = contentWidth;
+                const chartsImgHeight = (chartsCanvas.height * chartsImgWidth) / chartsCanvas.width;
+
+                heightLeft = chartsImgHeight;
+                position = margin + titleHeight + 2;
+
+                pdf.addImage(chartsImgData, 'PNG', margin, position, chartsImgWidth, chartsImgHeight);
+                heightLeft -= availableHeight;
+
+                while (heightLeft > 0) {
+                    pdf.addPage();
+                    addTitle(pdf);
+                    addFooter(pdf);
+                    position = margin + titleHeight + 2 - (chartsImgHeight - heightLeft);
+                    pdf.addImage(chartsImgData, 'PNG', margin, position, chartsImgWidth, chartsImgHeight);
+                    heightLeft -= availableHeight;
+                }
+
+                // 页面3: 过程能力
+                pdf.addPage();
+                addTitle(pdf);
+                addFooter(pdf);
+
+                const capabilitiesCanvas = await html2canvas(capabilitiesContent, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff',
+                    windowWidth: capabilitiesContent.scrollWidth + 100,
+                    windowHeight: capabilitiesContent.scrollHeight + 500
+                });
+
+                const capabilitiesImgData = capabilitiesCanvas.toDataURL('image/png');
+                const capabilitiesImgWidth = contentWidth;
+                const capabilitiesImgHeight = (capabilitiesCanvas.height * capabilitiesImgWidth) / capabilitiesCanvas.width;
+
+                heightLeft = capabilitiesImgHeight;
+                position = margin + titleHeight + 2;
+
+                pdf.addImage(capabilitiesImgData, 'PNG', margin, position, capabilitiesImgWidth, capabilitiesImgHeight);
+                heightLeft -= availableHeight;
+
+                while (heightLeft > 0) {
+                    pdf.addPage();
+                    addTitle(pdf);
+                    addFooter(pdf);
+                    position = margin + titleHeight + 2 - (capabilitiesImgHeight - heightLeft);
+                    pdf.addImage(capabilitiesImgData, 'PNG', margin, position, capabilitiesImgWidth, capabilitiesImgHeight);
+                    heightLeft -= availableHeight;
+                }
+
+                // 保存PDF
+                pdf.save(`SPC完整分析报告_${new Date().toISOString().slice(0,10)}.pdf`);
+
+            } catch (error) {
+                console.error('PDF导出错误:', error);
+                alert('PDF导出失败：' + error.message + '\n请查看控制台了解详情');
+            } finally {
+                // 恢复原始样式
+                dataContent.style.display = originalDataDisplay;
+                dataContent.style.opacity = originalDataOpacity;
+                chartsContent.style.display = originalChartsDisplay;
+                chartsContent.style.opacity = originalChartsOpacity;
+                capabilitiesContent.style.display = originalCapabilitiesDisplay;
+                capabilitiesContent.style.opacity = originalCapabilitiesOpacity;
+
+                // 恢复原来的标签页
+                document.getElementById('tab-' + currentTab).click();
+            }
+        }
+
+        // 获取标签页标题
+        function getTabTitle(tabId) {
+            const titles = {
+                'data': '数据输入',
+                'charts': '控制图',
+                'capabilities': '过程能力'
+            };
+            return titles[tabId] || '未知页面';
+        }
+
+        // ====== Excel导出函数集合 ======
+        // 注意：ExcelJS 无法完全复制 HTML 的所有视觉效果（渐变、阴影、图标等）
+        // 以下函数实现了 Excel 支持的最佳样式效果
+
+        // ====== Excel导出函数集合 ======
+
+        // 1. 创建版本履历页
+        async function createVersionHistorySheet(workbook) {
+            const sheet = workbook.addWorksheet('版本履历');
+
+            // 标题
+            sheet.addRow(['SPC 统计过程控制工作表 - 版本履历']);
+            sheet.getCell('A1').font = { size: 18, bold: true, color: { argb: 'FF1E40AF' } };
+            sheet.getCell('A1').alignment = { horizontal: 'center' };
+            sheet.mergeCells('A1:D1');
+            sheet.getRow(1).height = 30;
+
+            // 副标题
+            sheet.addRow(['版本演进时间线', '', '', '']);
+            sheet.getCell('A2').font = { size: 14, bold: true };
+            sheet.getRow(2).height = 25;
+
+            // 版本表格
+            sheet.addRow(['版本', '日期', '类型', '主要变更', '文件大小', '代码行数']);
+            sheet.getRow(3).font = { bold: true };
+            sheet.getRow(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
+
+            const versionData = [
+                ['v1.0', '2026-02-25', '初始版本', '完整SPC分析功能实现', '94 KB', '1,640'],
+                ['v1.1', '2026-02-25', '修复优化', '修复按钮颜色、计算功能、乱码问题', '97 KB', '1,702'],
+                ['v1.2', '2026-02-25', '界面优化', '优化布局、示意图、版本履历', '101 KB', '1,752'],
+                ['v1.3', '2026-02-25', '功能完善', '改进失控点标记、异常详情显示', '94 KB', '1,677'],
+                ['v1.4', '2026-02-25', '逻辑修正', '修正异常点分类、修复计算按钮、优化配色', '99 KB', '1,749'],
+                ['v1.5', '2026-02-25', '功能增强', '完整Excel导出，包含所有页面内容', '118 KB', '2,113'],
+                ['v1.6', '2026-02-25', '功能增强', '添加PDF导出，HTML所见即PDF所得', '126 KB', '2,280'],
+                ['v1.7', '2026-02-25', 'PDF完善', '添加PDF标题、编制信息、优化分页、单元格拖拽限制', '131 KB', '2,437'],
+                ['v1.8', '2026-02-25', 'SPC修正', '修正控制图类型计算逻辑，支持Xbar-R/Xbar-S/I-MR正确公式', '136 KB', '2,570']
+            ];
+
+            versionData.forEach((row, idx) => {
+                sheet.addRow(row);
+                const rowNum = idx + 4;
+                if (idx === versionData.length - 1) {
+                    // 当前版本高亮
+                    sheet.getRow(rowNum).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+                    sheet.getCell(`A${rowNum}`).font = { bold: true, color: { argb: 'FF1D4ED8' } };
+                }
+            });
+
+            // 版本详情
+            sheet.addRow([]);
+            sheet.addRow(['版本详情', '', '', '']);
+            sheet.getCell(`A${sheet.rowCount}`).font = { size: 14, bold: true };
+
+            // v1.6 详情
+            sheet.addRow([]);
+            sheet.addRow(['v1.6 - PDF导出', '', '', '']);
+            sheet.getCell(`A${sheet.rowCount}`).font = { size: 12, bold: true, color: { argb: 'FF7C3AED' } };
+            sheet.addRow(['发布日期:', '2026-02-25', '', '']);
+            sheet.addRow(['主要改进:', '', '', '']);
+            sheet.addRow(['  • 添加PDF导出功能，实现HTML所见即PDF所得']);
+            sheet.addRow(['  • 使用html2canvas + jsPDF技术']);
+            sheet.addRow(['  • 完整保留HTML所有视觉效果和配色']);
+            sheet.addRow(['  • 支持完整页面和单页面导出']);
+
+            // v1.7 详情
+            sheet.addRow([]);
+            sheet.addRow(['v1.7 - PDF完善', '', '', '']);
+            sheet.getCell(`A${sheet.rowCount}`).font = { size: 12, bold: true, color: { argb: 'FF0D9488' } };
+            sheet.addRow(['发布日期:', '2026-02-25', '', '']);
+            sheet.addRow(['主要改进:', '', '', '']);
+            sheet.addRow(['  • PDF每页添加标题"SPC统计过程控制工作表"']);
+            sheet.addRow(['  • PDF每页底部添加编制信息和日期签名栏']);
+            sheet.addRow(['  • 优化PDF分页处理，避免内容被切断']);
+            sheet.addRow(['  • 数据输入表格禁止单元格拖拽，允许多选复制']);
+
+            // v1.8 详情
+            sheet.addRow([]);
+            sheet.addRow(['v1.8 - SPC修正', '', '', '']);
+            sheet.getCell(`A${sheet.rowCount}`).font = { size: 12, bold: true, color: { argb: 'FF0D9488' } };
+            sheet.addRow(['发布日期:', '2026-02-25', '', '']);
+            sheet.addRow(['主要修正:', '', '', '']);
+            sheet.addRow(['  • 修复控制图和过程能力未根据图表类型生成的问题']);
+            sheet.addRow(['  • Xbar-R图：使用A₂、D₃、D₄系数，计算Xbar和R控制限']);
+            sheet.addRow(['  • Xbar-S图：使用A₃、B₃、B₄系数，计算Xbar和S控制限']);
+            sheet.addRow(['  • I-MR图：使用E₂系数，计算单值I和移动极差MR控制限']);
+            sheet.addRow(['  • 图表显示、参数标注、过程能力计算均根据图表类型动态调整']);
+
+            // 设置列宽
+            sheet.columns = [
+                { width: 12 }, { width: 15 }, { width: 15 }, { width: 40 }, { width: 12 }, { width: 12 }
+            ];
+
+            // 设置页脚
+            sheet.headerFooter.oddFooter = 'SPC 统计过程控制工作表 v1.8 | 作者：zhitang | 2026-02-25';
+        }
+
+        // 2. 创建步骤说明页
+        async function createStepsSheet(workbook) {
+            const sheet = workbook.addWorksheet('步骤说明');
+
+            sheet.addRow(['SPC 控制图判异准则']);
+            sheet.getCell('A1').font = { size: 16, bold: true };
+            sheet.mergeCells('A1:D1');
+
+            sheet.addRow(['基于GB/T 4091-2001标准和Nelson Rules（1984），共8条判异准则']);
+            sheet.addRow(['']);
+
+            const rules = [
+                ['规则', '名称', '说明'],
+                ['规则1', '单点超出3σ控制限', '任何单个数据点超出UCL或LCL，表明过程存在特殊原因变异'],
+                ['规则2', '连续9点在中心线同侧', '连续9个数据点落在中心线同一侧，表明过程均值发生偏移'],
+                ['规则3', '连续6点上升或下降趋势', '连续6个点持续上升或下降，表明过程存在趋势性变化'],
+                ['规则4', '连续14点交替上下', '连续14个点交替上升和下降，表明存在系统性的周期性变异'],
+                ['规则5', '连续3点中有2点落在2σ外（同侧）', '连续3个点中至少有2个落在中心线同一侧的2σ以外区域'],
+                ['规则6', '连续5点中有4点落在1σ外（同侧）', '连续5个点中至少有4个落在中心线同一侧的1σ以外区域'],
+                ['规则7', '连续15点在1σ范围内（数据分层）', '连续15个点都落在中心线两侧的1σ范围内，表明可能存在分层或测量分辨力不足'],
+                ['规则8', '连续8点在1σ范围外（数据混合）', '连续8个点都落在中心线两侧的1σ范围之外，表明存在混合模式']
+            ];
+
+            rules.forEach(row => {
+                sheet.addRow(row);
+            });
+
+            // 格式化表头
+            sheet.getRow(4).font = { bold: true };
+            sheet.getRow(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
+
+            // 规则1-6使用蓝色，规则7-8使用黄色
+            for (let i = 5; i <= 12; i++) {
+                if (i <= 11) {
+                    sheet.getRow(i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F9FF' } };
+                } else {
+                    sheet.getRow(i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+                }
+            }
+
+            sheet.columns = [{ width: 10 }, { width: 30 }, { width: 12 }, { width: 50 }];
+        }
+
+        // 3. 创建数据输入页
+        async function createDataSheet(workbook) {
+            const sheet = workbook.addWorksheet('数据输入');
+            const { numSubgroups, subgroupSize } = results;
+
+            // 标题
+            sheet.addRow(['数据输入表']);
+            sheet.getCell('A1').font = { size: 16, bold: true, color: { argb: 'FF1E40AF' } };
+            sheet.mergeCells('A1:F1');
+
+            // 参数信息
+            sheet.addRow(['']);
+            sheet.addRow(['参数设置']);
+            sheet.getCell(`A${sheet.rowCount}`).font = { bold: true, size: 12 };
+            sheet.addRow(['子组数量:', numSubgroups, '', '子组大小:', subgroupSize]);
+            sheet.addRow(['控制图类型:', results.chartType, '', '', '']);
+
+            // 数据表格
+            sheet.addRow(['']);
+            sheet.addRow(['子组号', ...Array.from({length: subgroupSize}, (_, i) => `测量值${i+1}`), '均值', '极差', '标准差']);
+
+            // 表头格式
+            const headerRow = sheet.rowCount;
+            sheet.getRow(headerRow).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            sheet.getRow(headerRow).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF3B82F6' } };
+            sheet.getRow(headerRow).alignment = { horizontal: 'center' };
+
+            // 数据行
+            for (let i = 0; i < numSubgroups; i++) {
+                const row = [i + 1, ...dataValues[i].map(v => v.toFixed(3)),
+                           results.means[i].toFixed(4),
+                           results.ranges[i].toFixed(4),
+                           results.stddevs[i].toFixed(4)];
+                sheet.addRow(row);
+
+                // 交替行色
+                if (i % 2 === 0) {
+                    sheet.getRow(sheet.rowCount).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+                }
+            }
+
+            // 设置列宽
+            sheet.columns = [
+                { width: 10 }, ...Array(subgroupSize).fill({ width: 12 }),
+                { width: 12 }, { width: 12 }, { width: 12 }
+            ];
+        }
+
+        // 4. 创建控制图页（含分析结果）
+        async function createChartsSheet(workbook) {
+            const sheet = workbook.addWorksheet('控制图');
+
+            sheet.addRow(['控制图分析结果']);
+            sheet.getCell('A1').font = { size: 16, bold: true, color: { argb: 'FF1E40AF' } };
+            sheet.mergeCells('A1:B1');
+
+            // 控制图参数
+            sheet.addRow(['']);
+            sheet.addRow(['控制图参数']);
+            sheet.getCell(`A${sheet.rowCount}`).font = { size: 12, bold: true, color: { argb: 'FF1D4ED8' } };
+            sheet.addRow([]);
+
+            const params = [
+                ['子组数量', results.numSubgroups],
+                ['子组大小', results.subgroupSize],
+                ['总均值 X̄̄', results.grandMean.toFixed(4)],
+                ['平均极差 R̄', results.meanRange.toFixed(4)],
+                ['Xbar UCL', results.xbarUCL.toFixed(4)],
+                ['Xbar LCL', results.xbarLCL.toFixed(4)],
+                ['R UCL', results.rUCL.toFixed(4)],
+                ['R LCL', results.rLCL.toFixed(4)]
+            ];
+
+            params.forEach(([label, value]) => {
+                sheet.addRow([label, value]);
+                const rowNum = sheet.rowCount;
+                sheet.getCell(`A${rowNum}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+                sheet.getCell(`B${rowNum}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF' } };
+            });
+
+            // 过程状态判定
+            sheet.addRow(['']);
+            sheet.addRow(['过程状态判定']);
+            sheet.getCell(`A${sheet.rowCount}`).font = { size: 12, bold: true, color: { argb: 'FF9333EA' } };
+            sheet.addRow([]);
+
+            const inControl = results.outOfControlPoints.length === 0;
+            sheet.addRow(['过程状态:', inControl ? '✅ 过程受控' : '❌ 过程失控']);
+            sheet.addRow(['异常点数量:', results.outOfControlPoints.length]);
+
+            // 失控点详情
+            if (results.outOfControlPoints.length > 0) {
+                sheet.addRow(['']);
+                sheet.addRow(['失控点详情']);
+                sheet.getCell(`A${sheet.rowCount}`).font = { size: 12, bold: true, color: { argb: 'FFDC2626' } };
+                sheet.addRow(['子组号', '控制图', '数值', '异常原因']);
+                const headerRow = sheet.rowCount;
+                sheet.getRow(headerRow).font = { bold: true };
+                sheet.getRow(headerRow).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+
+                results.outOfControlPoints.forEach(p => {
+                    sheet.addRow([p.subgroup, p.type, p.value.toFixed(4), p.reason]);
+                    sheet.getRow(sheet.rowCount).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+                });
+            }
+
+            // 数据质量警示
+            if (results.dataQualityWarnings && results.dataQualityWarnings.length > 0) {
+                sheet.addRow(['']);
+                sheet.addRow(['数据质量警示']);
+                sheet.getCell(`A${sheet.rowCount}`).font = { size: 12, bold: true, color: { argb: 'FFD97706' } };
+                sheet.addRow(['子组号', '控制图', '数值', '警示原因']);
+                const headerRow = sheet.rowCount;
+                sheet.getRow(headerRow).font = { bold: true };
+                sheet.getRow(headerRow).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+
+                results.dataQualityWarnings.forEach(p => {
+                    sheet.addRow([p.subgroup, p.type, p.value.toFixed(4), p.reason]);
+                    sheet.getRow(sheet.rowCount).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+                });
+            }
+
+            sheet.columns = [{ width: 15 }, { width: 15 }, { width: 15 }, { width: 40 }];
+        }
+
+        // 5. 创建过程能力页
+        async function createCapabilitySheet(workbook) {
+            const sheet = workbook.addWorksheet('过程能力');
+
+            sheet.addRow(['过程能力分析']);
+            sheet.getCell('A1').font = { size: 16, bold: true, color: { argb: 'FF1E40AF' } };
+            sheet.mergeCells('A1:B1');
+
+            if (results.processCapability) {
+                const pc = results.processCapability;
+
+                sheet.addRow(['']);
+                sheet.addRow(['过程能力指数']);
+                sheet.getCell(`A${sheet.rowCount}`).font = { size: 12, bold: true, color: { argb: 'FF059669' } };
+                sheet.addRow([]);
+
+                const metrics = [
+                    ['Cp (短期过程能力)', pc.cp, '衡量过程在规格限内的潜在能力'],
+                    ['Cpk (短期过程能力)', pc.cpk, '考虑过程中心偏移的实际能力'],
+                    ['Cpu (上侧能力指数)', pc.cpu, '上规格限方向的过程能力'],
+                    ['Cpl (下侧能力指数)', pc.cpl, '下规格限方向的过程能力'],
+                    ['Pp (长期过程性能)', pc.pp, '使用整体标准差的长期性能'],
+                    ['Ppk (长期过程性能)', pc.ppk, '考虑中心偏移的长期性能']
+                ];
+
+                metrics.forEach(([label, value, desc]) => {
+                    sheet.addRow([label, value ? value.toFixed(4) : '-', desc]);
+                    const rowNum = sheet.rowCount;
+                    sheet.getCell(`B${rowNum}`).font = { bold: true };
+                    sheet.getCell(`B${rowNum}`).alignment = { horizontal: 'center' };
+                });
+
+                // 过程能力等级评估
+                sheet.addRow(['']);
+                sheet.addRow(['过程能力等级评估']);
+                sheet.getCell(`A${sheet.rowCount}`).font = { size: 12, bold: true, color: { argb: 'FF059669' } };
+                sheet.addRow([]);
+
+                const cpk = pc.cpk || 0;
+                let level, color;
+                if (cpk >= 1.67) {
+                    level = '优秀 (Ⅰ级)';
+                    color = 'FF86EFAC';
+                } else if (cpk >= 1.33) {
+                    level = '良好 (Ⅱ级)';
+                    color = 'FFFDE047';
+                } else if (cpk >= 1.00) {
+                    level = '合格 (Ⅲ级)';
+                    color = 'FFFCA5A5';
+                } else if (cpk >= 0.67) {
+                    level = '不足 (Ⅳ级)';
+                    color = 'FFF87171';
+                } else {
+                    level = '严重不足 (Ⅴ级)';
+                    color = 'FFEF4444';
+                }
+
+                sheet.addRow(['Cpk值:', pc.cpk.toFixed(4)]);
+                sheet.addRow(['能力等级:', level]);
+                sheet.getCell(`B${sheet.rowCount}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } };
+
+            } else {
+                sheet.addRow(['']);
+                sheet.addRow(['请先在"过程能力"页面输入规格限（USL、LSL）']);
+                sheet.addRow(['然后点击"计算分析"按钮']);
+            }
+
+            sheet.columns = [{ width: 25 }, { width: 15 }, { width: 50 }];
+        }
+
+        // 原有的结果表创建函数（保留兼容性）
+        async function createResultsSheet(workbook) {
+            const sheet = workbook.addWorksheet('分析结果');
+
+            sheet.addRow(['SPC 分析结果报告']);
+            sheet.getCell('A1').font = { size: 16, bold: true };
+            sheet.mergeCells('A1:B1');
+
+            sheet.addRow(['控制图参数', '']);
+            sheet.addRow(['总均值 X̄̄', results.grandMean.toFixed(4)]);
+            sheet.addRow(['平均极差 R̄', results.meanRange.toFixed(4)]);
+            sheet.addRow(['Xbar UCL', results.xbarUCL.toFixed(4)]);
+            sheet.addRow(['Xbar LCL', results.xbarLCL.toFixed(4)]);
+            sheet.addRow(['R UCL', results.rUCL.toFixed(4)]);
+            sheet.addRow(['R LCL', results.rLCL.toFixed(4)]);
+
+            if (results.processCapability) {
+                const pc = results.processCapability;
+                sheet.addRow(['过程能力', '']);
+                sheet.addRow(['Cp', pc.cp.toFixed(4)]);
+                sheet.addRow(['Cpk', pc.cpk.toFixed(4)]);
+                sheet.addRow(['Pp', pc.pp.toFixed(4)]);
+                sheet.addRow(['Ppk', pc.ppk.toFixed(4)]);
+            }
+        }
+
+        // 自动演示
+        async function runDemo() {
+            alert('🎬 SPC统计过程控制 - 自动演示\n\n将按真实用户操作节奏演示：\n\n📋 步骤1: 切换到数据输入页面\n📊 步骤2: 加载示例数据（125个测量值）\n🧮 步骤3: 计算分析结果\n📈 步骤4: 查看控制图\n📉 步骤5: 查看过程能力\n\n每个步骤1-2秒，请仔细观察...');
+
+            switchTab('data');
+            await sleep(1500);
+
+            loadSampleData();
+            await sleep(2000);
+
+            calculateAnalysis();
+            await sleep(1000);
+
+            switchTab('charts');
+            await sleep(2500);
+
+            switchTab('capabilities');
+            await sleep(2500);
+
+            const status = results.outOfControlPoints.length === 0 ? '✅ 受控' : '❌ 失控';
+            const pc = results.processCapability;
+            const cpkText = pc ? `\n• Cp = ${pc.cp.toFixed(3)}\n• Cpk = ${pc.cpk.toFixed(3)}` : '';
+            alert('🎉 演示完成！\n\n📊 分析结果：\n----------------\n• 过程状态: ' + status + '\n• 总均值 X̄̄ = ' + results.grandMean.toFixed(4) + '\n• 平均极差 R̄ = ' + results.meanRange.toFixed(4) + '\n• Xbar UCL = ' + results.xbarUCL.toFixed(4) + '\n• Xbar LCL = ' + results.xbarLCL.toFixed(4) + '\n• 异常点数 = ' + results.outOfControlPoints.length + cpkText + '\n----------------\n\n💡 提示：点击"导出Excel"或"导出PDF"可下载完整报告');
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // 初始化
+        generateTable();
+    </script>
+</body>
+</html>
